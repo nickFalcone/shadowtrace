@@ -3,7 +3,8 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar, MapPin, Calculator, Clock, Satellite, Info, Compass } from 'lucide-react';
+import { Calendar, MapPin, Calculator, Clock, Satellite, Info, Compass, HelpCircle } from 'lucide-react';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { ClickPoint } from './InteractiveImage';
 import {
   PhotoMetadata,
@@ -187,6 +188,14 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                 <Label className="flex items-center gap-2 text-sm font-medium">
                   <Compass className="w-4 h-4" />
                   Azimuth Constraint
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-64">
+                      Uses the camera's compass bearing combined with the shadow direction to compute the sun's azimuth. Filters the shadow band to locations where the sun's position matches — narrowing results from a global band to a candidate region.
+                    </TooltipContent>
+                  </Tooltip>
                 </Label>
                 <button
                   role="switch"
