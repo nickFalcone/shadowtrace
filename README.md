@@ -33,6 +33,24 @@ The application implements the proven ShadowFinder algorithm methodology, achiev
 - Automatic intersection calculation of shadow analyses
 - Dramatically improved location accuracy through geometric convergence
 
+### 📷 **EXIF Auto-Detection**
+- Automatically extracts timestamp from photo metadata
+- Prefers GPS timestamp (UTC, highest accuracy) when available
+- Falls back to camera timestamp + UTC offset for automatic conversion
+- Manual UTC offset picker for photos without timezone metadata
+
+### 🧭 **Azimuth Constraint**
+- Reads compass bearing from EXIF (iOS, many Android cameras)
+- Combines camera heading with shadow pixel direction to compute the sun's azimuth
+- Applies as a toggleable post-analysis filter — no re-computation required
+- Narrows results from a global band to a candidate region; ±10° tolerance absorbs marking imprecision and lens distortion
+- Automatically disabled for magnetic bearings (True North required)
+
+### 🔬 **Loupe Magnifier**
+- CSS-only 3× magnifier follows the cursor during point marking
+- Cyan crosshairs for sub-pixel precision placement
+- Automatically hides once all three points are marked
+
 ### 🌍 **Advanced Visualization**
 - Interactive world map with D3.js geographic projections
 - Color-coded probability "donuts" showing likelihood regions
@@ -64,15 +82,16 @@ For each point on Earth's surface:
 
 ### Step-by-Step Process
 
-1. **📸 Image Upload**: Select photograph with clear vertical objects and shadows
-2. **📍 Point Marking**: Click to mark three reference points:
+1. **📸 Image Upload**: Select photograph with clear vertical objects and shadows — timestamp and compass bearing are read from EXIF automatically
+2. **📍 Point Marking**: Click to mark three reference points (loupe magnifier assists precision):
    - Object base (bottom of vertical object)
-   - Object top (top of vertical object) 
+   - Object top (top of vertical object)
    - Shadow tip (end of object's shadow)
-3. **🕐 Timestamp Entry**: Input precise date and time (UTC) when photo was captured
-4. **⚙️ Analysis**: Algorithm processes shadow geometry across global grid
-5. **🗺️ Visualization**: Results displayed on interactive world map
-6. **🎯 Optional Enhancement**: Add second photo for intersection analysis
+3. **🕐 Timestamp Entry**: Pre-filled from EXIF; adjust manually if needed
+4. **🧭 Azimuth Constraint**: If EXIF compass bearing is available, toggle to narrow results using sun direction
+5. **⚙️ Analysis**: Algorithm processes shadow geometry across global grid
+6. **🗺️ Visualization**: Results displayed on interactive world map
+7. **🎯 Optional Enhancement**: Add second photo for intersection analysis
 
 ## 📚 References & Methodology
 
