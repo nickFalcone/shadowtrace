@@ -14,6 +14,7 @@ export interface ShadowFinderPoint {
   lat: number;
   lng: number;
   likelihood: number;
+  sunAzimuthDeg: number;
 }
 
 export interface ShadowAnalysisInput {
@@ -77,10 +78,15 @@ export function generateShadowFinderGrid(
         likelihood = Math.abs(relativeDiff);
       }
       
+      // SunCalc azimuth: 0=South, positive=West, negative=East (radians)
+      // Convert to 0–360 compass bearing (0=North, clockwise)
+      const sunAzimuthDeg = (sunPos.azimuth * 180 / Math.PI + 180 + 360) % 360;
+
       points.push({
         lat: lat,
         lng: lng,
-        likelihood: likelihood
+        likelihood: likelihood,
+        sunAzimuthDeg,
       });
     }
   }
@@ -185,6 +191,27 @@ export function convertPercentageToPixels(
     x: (percentageCoords.x / 100) * imageWidth,
     y: (percentageCoords.y / 100) * imageHeight
   };
+}
+
+export interface AzimuthConstraint {
+  sunBearingDeg: number;
+  toleranceDeg: number;
+  enabled: boolean;
+}
+
+/**
+ * Filter grid points to those whose sun azimuth is within toleranceDeg of
+ * the observed sun bearing. Handles the 0°/360° wraparound.
+ */
+export function applyAzimuthConstraint(
+  points: ShadowFinderPoint[],
+  constraint: AzimuthConstraint
+): ShadowFinderPoint[] {
+  if (!constraint.enabled) return points;
+  return points.filter(p => {
+    const diff = Math.abs(((p.sunAzimuthDeg - constraint.sunBearingDeg + 540) % 360) - 180);
+    return diff <= constraint.toleranceDeg;
+  });
 }
 
 /**
