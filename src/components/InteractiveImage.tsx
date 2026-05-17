@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { RotateCcw, Target, Upload } from 'lucide-react';
@@ -32,8 +32,20 @@ export const InteractiveImage: React.FC<InteractiveImageProps> = ({
 }) => {
   const [points, setPoints] = useState<ClickPoint[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
+  const [loupePos, setLoupePos] = useState<{ x: number; y: number } | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
     if (currentStep >= POINT_CONFIGS.length) return;
@@ -138,7 +150,16 @@ export const InteractiveImage: React.FC<InteractiveImageProps> = ({
         </div>
       </div>
       
-      <div ref={containerRef} className="relative">
+      <div
+        ref={containerRef}
+        className="relative"
+        onMouseMove={(e) => {
+          if (currentStep >= POINT_CONFIGS.length) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          setLoupePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        }}
+        onMouseLeave={() => setLoupePos(null)}
+      >
         <img
           ref={imageRef}
           src={imageSrc}
@@ -148,6 +169,48 @@ export const InteractiveImage: React.FC<InteractiveImageProps> = ({
           draggable={false}
         />
         
+        {/* Loupe magnifier */}
+        {loupePos && currentStep < POINT_CONFIGS.length && containerSize.width > 0 && (
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              width: 90,
+              height: 90,
+              left: Math.min(loupePos.x + 20, containerSize.width - 100),
+              top: Math.max(loupePos.y - 110, 10),
+              borderRadius: '50%',
+              overflow: 'hidden',
+              border: '1.5px solid rgba(100,200,255,0.8)',
+              boxShadow: '0 0 0 1px rgba(100,200,255,0.3), 0 4px 20px rgba(0,0,0,0.6)',
+              zIndex: 20,
+            }}
+          >
+            <img
+              src={imageSrc}
+              alt=""
+              draggable={false}
+              style={{
+                position: 'absolute',
+                width: containerSize.width * 3,
+                height: containerSize.height * 3,
+                left: 45 - loupePos.x * 3,
+                top: 45 - loupePos.y * 3,
+                maxWidth: 'none',
+              }}
+            />
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              <div style={{
+                position: 'absolute', top: '50%', left: 0, right: 0,
+                height: 1, background: 'rgba(100,200,255,0.6)',
+              }} />
+              <div style={{
+                position: 'absolute', left: '50%', top: 0, bottom: 0,
+                width: 1, background: 'rgba(100,200,255,0.6)',
+              }} />
+            </div>
+          </div>
+        )}
+
         {/* Point markers */}
         {points.map((point, index) => {
           const config = POINT_CONFIGS.find(c => c.type === point.type);
