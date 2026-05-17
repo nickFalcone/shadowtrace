@@ -4,7 +4,7 @@ import * as topojson from 'topojson';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Zap } from 'lucide-react';
-import { ShadowAnalysisResult } from '@/lib/shadowfinder';
+import { ShadowAnalysisResult, AzimuthConstraint, applyAzimuthConstraint } from '@/lib/shadowfinder';
 
 interface ShadowFinderVisualizationProps {
   analysisData: ShadowAnalysisResult;
@@ -13,7 +13,6 @@ interface ShadowFinderVisualizationProps {
     objectHeight: number;
     shadowLength: number;
   };
-  // Second analysis for intersection mode
   secondAnalysisData?: ShadowAnalysisResult | null;
   secondKnownTime?: Date | null;
   secondMeasurements?: {
@@ -21,6 +20,8 @@ interface ShadowFinderVisualizationProps {
     shadowLength: number;
   } | null;
   mode?: 'single' | 'intersection';
+  azimuthConstraint?: AzimuthConstraint | null;
+  secondAzimuthConstraint?: AzimuthConstraint | null;
 }
 
 export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps> = ({
@@ -31,6 +32,8 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
   secondKnownTime,
   secondMeasurements,
   mode = 'single',
+  azimuthConstraint,
+  secondAzimuthConstraint,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -115,9 +118,14 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
           // This ensures proper coordinate alignment with the world map
           
           // Filter and draw shadow analysis points based on mode
-          const firstVisiblePoints = analysisData.points.filter(d => 
+          const firstVisibleBase = analysisData.points.filter(d =>
             d.likelihood !== -1 && d.likelihood <= 0.15
           );
+          const firstFiltered = azimuthConstraint?.enabled
+            ? applyAzimuthConstraint(firstVisibleBase, azimuthConstraint)
+            : null;
+          const firstAzimuthFallback = firstFiltered !== null && firstFiltered.length === 0;
+          const firstVisiblePoints = firstAzimuthFallback ? firstVisibleBase : (firstFiltered ?? firstVisibleBase);
           
           const cellSize = 1.2; // Small cells for precision
 
@@ -163,9 +171,14 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
               });
           } else {
             // Dual donut intersection visualization
-            const secondVisiblePoints = secondAnalysisData!.points.filter(d => 
+            const secondVisibleBase = secondAnalysisData!.points.filter(d =>
               d.likelihood !== -1 && d.likelihood <= 0.15
             );
+            const secondFiltered = secondAzimuthConstraint?.enabled
+              ? applyAzimuthConstraint(secondVisibleBase, secondAzimuthConstraint)
+              : null;
+            const secondAzimuthFallback = secondFiltered !== null && secondFiltered.length === 0;
+            const secondVisiblePoints = secondAzimuthFallback ? secondVisibleBase : (secondFiltered ?? secondVisibleBase);
             
             // Create lookup for intersection calculation
             const firstPointsMap = new Map();
@@ -358,11 +371,20 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
         });
     }, 50); // Small delay like HTML version
 
-  }, [analysisData, knownTime, measurements, secondAnalysisData, secondKnownTime, secondMeasurements, mode]);
+  }, [analysisData, knownTime, measurements, secondAnalysisData, secondKnownTime, secondMeasurements, mode, azimuthConstraint, secondAzimuthConstraint]);
 
   if (!analysisData) {
     return null;
   }
+
+  // Compute fallback state for badge/warning (mirrors D3 useEffect filter logic)
+  const firstVisibleBase = analysisData.points.filter(d => d.likelihood !== -1 && d.likelihood <= 0.15);
+  const firstFiltered = azimuthConstraint?.enabled ? applyAzimuthConstraint(firstVisibleBase, azimuthConstraint) : null;
+  const firstAzimuthFallback = firstFiltered !== null && firstFiltered.length === 0;
+
+  const secondVisibleBase = secondAnalysisData?.points.filter(d => d.likelihood !== -1 && d.likelihood <= 0.15) ?? [];
+  const secondFiltered = secondAzimuthConstraint?.enabled ? applyAzimuthConstraint(secondVisibleBase, secondAzimuthConstraint!) : null;
+  const secondAzimuthFallback = secondFiltered !== null && secondFiltered.length === 0;
 
   return (
     <Card className="cyber-border overflow-hidden">
@@ -386,11 +408,16 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
           <div className="flex gap-2">
             <Badge variant="outline" className="border-cyber-primary/30 text-cyber-primary">
               <Zap className="w-3 h-3 mr-1" />
-              {mode === 'single' 
+              {mode === 'single'
                 ? `${analysisData.statistics.ultraTightBandPoints} ultra-precise`
                 : `Dual Photo Mode`
               }
             </Badge>
+            {azimuthConstraint?.enabled && !firstAzimuthFallback && (
+              <Badge variant="outline" className="border-cyber-secondary/30 text-cyber-secondary">
+                🧭 Azimuth-constrained
+              </Badge>
+            )}
           </div>
         </div>
       </div>
@@ -401,11 +428,16 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
       
       <div className="p-4 border-t border-border/50">
         <div className="text-xs text-muted-foreground text-center">
-          {mode === 'single' 
+          {mode === 'single'
             ? 'Bright yellow shows ultra-precise matches. Orange areas show probable locations. Empty spaces indicate nighttime regions.'
             : 'White/Green areas show intersection of both analyses (highest precision). Yellow = First photo, Blue = Second photo. Empty spaces indicate nighttime regions.'
           }
         </div>
+        {(firstAzimuthFallback || secondAzimuthFallback) && (
+          <div className="text-xs text-amber-400 text-center mt-1">
+            Azimuth constraint produced no matches — showing shadow band only
+          </div>
+        )}
       </div>
     </Card>
   );
