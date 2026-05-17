@@ -1,10 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar, MapPin, Calculator, Clock } from 'lucide-react';
+import { Calendar, MapPin, Calculator, Clock, Satellite, Info, Compass } from 'lucide-react';
 import { ClickPoint } from './InteractiveImage';
+import {
+  PhotoMetadata,
+  getUtcOffsetOptions,
+  applyUtcOffset,
+  formatDateInput,
+  formatTimeInput,
+} from '@/lib/exif';
+import { AzimuthConstraint } from '@/lib/shadowfinder';
 
 interface AnalysisPanelProps {
   points: ClickPoint[];
@@ -15,6 +23,17 @@ interface AnalysisPanelProps {
     shadowLength: number;
   } | null;
   analysisMode?: 'first' | 'second';
+  photoMetadata?: PhotoMetadata | null;
+  onAzimuthConstraint: (constraint: AzimuthConstraint | null) => void;
+}
+
+const UTC_OFFSET_OPTIONS = getUtcOffsetOptions();
+
+// Default offset picker to the browser's current UTC offset
+function browserOffsetMinutes(): number {
+  const raw = -new Date().getTimezoneOffset(); // getTimezoneOffset returns inverted sign
+  // Round to nearest 30-min step
+  return Math.round(raw / 30) * 30;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -23,27 +42,100 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   isAnalyzing,
   measurements,
   analysisMode = 'first',
+  photoMetadata,
+  onAzimuthConstraint,
 }) => {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('12:00');
-  
-  // Reset date/time when analysis mode changes
+  const [manualOffsetMinutes, setManualOffsetMinutes] = useState<number>(browserOffsetMinutes);
+  const [azimuthEnabled, setAzimuthEnabled] = useState(false);
+
+  // Reset when analysis mode changes
   useEffect(() => {
     setSelectedDate('');
     setSelectedTime('12:00');
+    setManualOffsetMinutes(browserOffsetMinutes());
+    setAzimuthEnabled(false);
   }, [analysisMode]);
+
+  // Pre-fill from EXIF metadata
+  useEffect(() => {
+    if (!photoMetadata) return;
+
+    if (photoMetadata.utcTime) {
+      setSelectedDate(formatDateInput(photoMetadata.utcTime));
+      setSelectedTime(formatTimeInput(photoMetadata.utcTime));
+    } else if (photoMetadata.localTime) {
+      // Pre-fill local time — user must pick offset
+      setSelectedDate(formatDateInput(photoMetadata.localTime));
+      setSelectedTime(formatTimeInput(photoMetadata.localTime));
+    }
+  }, [photoMetadata]);
+
+  // When user adjusts the offset picker, recompute UTC date/time from local time
+  useEffect(() => {
+    if (!photoMetadata?.localTime || photoMetadata.utcTime) return;
+    const utc = applyUtcOffset(photoMetadata.localTime, manualOffsetMinutes);
+    setSelectedDate(formatDateInput(utc));
+    setSelectedTime(formatTimeInput(utc));
+  }, [manualOffsetMinutes, photoMetadata]);
+
+  const sunBearingDeg = useMemo(() => {
+    const bearing = photoMetadata?.compassBearing;
+    if (bearing == null || photoMetadata?.compassRef === 'M' || points.length < 3) return null;
+
+    const objectBottom = points.find(p => p.type === 'object-bottom');
+    const shadowTip = points.find(p => p.type === 'shadow-tip');
+    if (!objectBottom || !shadowTip) return null;
+
+    const dx = shadowTip.x - objectBottom.x;
+    const dy = shadowTip.y - objectBottom.y;
+    const shadowImageAngle = Math.atan2(dx, -dy) * 180 / Math.PI;
+    const shadowBearing = ((bearing + shadowImageAngle) % 360 + 360) % 360;
+    return (shadowBearing + 180) % 360;
+  }, [points, photoMetadata]);
+
+  // Auto-enable when sun bearing becomes computable
+  useEffect(() => {
+    if (sunBearingDeg !== null) setAzimuthEnabled(true);
+  }, [sunBearingDeg]);
+
+  // Emit constraint to parent whenever toggle or bearing changes
+  useEffect(() => {
+    if (sunBearingDeg !== null && azimuthEnabled) {
+      onAzimuthConstraint({ sunBearingDeg, toleranceDeg: 10, enabled: true });
+    } else {
+      onAzimuthConstraint(null);
+    }
+  }, [sunBearingDeg, azimuthEnabled, onAzimuthConstraint]);
+
+  const hasBearing = photoMetadata?.compassBearing != null;
+  const isMagnetic = photoMetadata?.compassRef === 'M';
+  const hasAllPoints = points.length >= 3;
+  const canToggleAzimuth = hasBearing && !isMagnetic && hasAllPoints && sunBearingDeg !== null;
+
+  const azimuthStatusNote =
+    !hasBearing ? 'No compass bearing in photo EXIF'
+    : isMagnetic ? 'Magnetic bearing — azimuth constraint unavailable'
+    : !hasAllPoints ? 'Mark all 3 points to enable'
+    : null;
 
   const handleAnalyze = () => {
     if (selectedDate) {
-      // CRITICAL: Force UTC parsing like HTML version (add 'Z' suffix)
-      const dateString = selectedDate + 'T' + selectedTime + 'Z';
-      const date = new Date(dateString);
-      console.log(`DEBUG: Original input: ${selectedDate} ${selectedTime}, Parsed as UTC: ${date.toISOString()}`);
+      const date = new Date(`${selectedDate}T${selectedTime}Z`);
       onAnalyze(date, selectedTime);
     }
   };
 
   const isReady = points.length === 3 && selectedDate;
+
+  // Determine which EXIF badge state to show
+  const exifState: 'gps' | 'offset' | 'local' | 'none' =
+    !photoMetadata ? 'none'
+    : photoMetadata.hasGPSTime ? 'gps'
+    : photoMetadata.utcOffset ? 'offset'
+    : photoMetadata.localTime ? 'local'
+    : 'none';
 
   return (
     <Card className="cyber-border">
@@ -57,7 +149,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
               {analysisMode === 'first' ? 'First Photo' : 'Second Photo'} Analysis
             </h3>
             <p className="text-sm text-muted-foreground">
-              {analysisMode === 'first' 
+              {analysisMode === 'first'
                 ? 'Geometric location estimation via shadow triangulation'
                 : 'Second photo analysis for intersection precision'
               }
@@ -65,26 +157,18 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           </div>
         </div>
 
-        {/* Measurements display */}
+        {/* Reference point measurements */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Reference Points</Label>
-          
-          {/* Show measurements when available */}
           {measurements ? (
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-2 rounded bg-muted/50 border border-border/50">
-                  <div className="text-muted-foreground mb-1">Object Height</div>
-                  <div className="font-mono text-cyber-primary">
-                    {measurements.objectHeight.toFixed(0)}px
-                  </div>
-                </div>
-                <div className="p-2 rounded bg-muted/50 border border-border/50">
-                  <div className="text-muted-foreground mb-1">Shadow Length</div>
-                  <div className="font-mono text-cyber-secondary">
-                    {measurements.shadowLength.toFixed(0)}px
-                  </div>
-                </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-2 rounded bg-muted/50 border border-border/50">
+                <div className="text-muted-foreground mb-1">Object Height</div>
+                <div className="font-mono text-cyber-primary">{measurements.objectHeight.toFixed(0)}px</div>
+              </div>
+              <div className="p-2 rounded bg-muted/50 border border-border/50">
+                <div className="text-muted-foreground mb-1">Shadow Length</div>
+                <div className="font-mono text-cyber-secondary">{measurements.shadowLength.toFixed(0)}px</div>
               </div>
             </div>
           ) : (
@@ -96,10 +180,89 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 
         {/* Date and time inputs */}
         <div className="space-y-4">
+          {/* Azimuth Constraint */}
+          {photoMetadata && (
+            <div className="space-y-2 p-3 rounded-md bg-muted/30 border border-border/50">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Compass className="w-4 h-4" />
+                  Azimuth Constraint
+                </Label>
+                <button
+                  role="switch"
+                  aria-checked={azimuthEnabled && canToggleAzimuth}
+                  disabled={!canToggleAzimuth}
+                  onClick={() => canToggleAzimuth && setAzimuthEnabled(e => !e)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+                    azimuthEnabled && canToggleAzimuth
+                      ? 'bg-cyber-primary'
+                      : 'bg-muted-foreground/30'
+                  } ${!canToggleAzimuth ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                >
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                    azimuthEnabled && canToggleAzimuth ? 'translate-x-5' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+
+              {azimuthStatusNote && (
+                <p className="text-xs text-muted-foreground">{azimuthStatusNote}</p>
+              )}
+
+              {sunBearingDeg !== null && (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2 rounded bg-muted/50 border border-border/50">
+                    <div className="text-muted-foreground mb-1">Camera bearing</div>
+                    <div className="font-mono text-amber-400">
+                      {photoMetadata.compassBearing!.toFixed(1)}° True N
+                    </div>
+                  </div>
+                  <div className="p-2 rounded bg-muted/50 border border-border/50">
+                    <div className="text-muted-foreground mb-1">Sun azimuth</div>
+                    <div className="font-mono text-amber-400">{sunBearingDeg.toFixed(1)}°</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* EXIF status badge */}
+          {exifState === 'gps' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-green-500/10 border border-green-500/20 text-xs text-green-400">
+              <Satellite className="w-3.5 h-3.5 shrink-0" />
+              Time read from GPS — already in UTC
+            </div>
+          )}
+          {exifState === 'offset' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-cyber-primary/10 border border-cyber-primary/20 text-xs text-cyber-primary">
+              <Info className="w-3.5 h-3.5 shrink-0" />
+              Time detected from photo and converted to UTC ({photoMetadata!.utcOffset})
+            </div>
+          )}
+          {exifState === 'local' && (
+            <div className="space-y-2 px-3 py-2 rounded-md bg-yellow-500/10 border border-yellow-500/20">
+              <div className="flex items-center gap-2 text-xs text-yellow-400">
+                <Info className="w-3.5 h-3.5 shrink-0" />
+                Local time detected — select your UTC offset to convert
+              </div>
+              <select
+                className="w-full text-xs rounded border border-border bg-background px-2 py-1.5 text-foreground"
+                value={manualOffsetMinutes}
+                onChange={(e) => setManualOffsetMinutes(Number(e.target.value))}
+              >
+                {UTC_OFFSET_OPTIONS.map((opt) => (
+                  <option key={opt.minutes} value={opt.minutes}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="photo-date" className="flex items-center gap-2">
               <Calendar className="w-4 h-4" />
-              Photo Date *
+              Photo Date (UTC) *
             </Label>
             <Input
               id="photo-date"
@@ -114,7 +277,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           <div className="space-y-2">
             <Label htmlFor="photo-time" className="flex items-center gap-2">
               <Clock className="w-4 h-4" />
-              Approximate Time (UTC)
+              Time (UTC)
             </Label>
             <Input
               id="photo-time"
@@ -125,7 +288,6 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
             />
           </div>
         </div>
-
 
         {/* Analyze button */}
         <Button
@@ -141,7 +303,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 
         {!isReady && (
           <p className="text-xs text-center text-muted-foreground">
-            {points.length < 3 
+            {points.length < 3
               ? `Mark ${3 - points.length} more point${3 - points.length === 1 ? '' : 's'} on the image`
               : 'Select the photo date to continue'
             }
