@@ -7,13 +7,15 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MapPin, Zap, Send, Twitter, Github, Linkedin, Coffee } from 'lucide-react';
-import { 
-  analyzeShadowMeasurements, 
-  calculateMeasurementsFromPixels, 
+import {
+  analyzeShadowMeasurements,
+  calculateMeasurementsFromPixels,
   convertPercentageToPixels,
   estimateBestLocation,
-  type ShadowAnalysisResult
+  type ShadowAnalysisResult,
+  type AzimuthConstraint,
 } from '@/lib/shadowfinder';
+import { extractPhotoMetadata, type PhotoMetadata } from '@/lib/exif';
 
 const Index = () => {
   // Analysis mode: 'first' or 'second'  
@@ -22,6 +24,7 @@ const Index = () => {
   // First photo analysis
   const [firstUploadedFile, setFirstUploadedFile] = useState<File | null>(null);
   const [firstImageUrl, setFirstImageUrl] = useState<string | null>(null);
+  const [firstPhotoMeta, setFirstPhotoMeta] = useState<PhotoMetadata | null>(null);
   const [firstPoints, setFirstPoints] = useState<ClickPoint[]>([]);
   const [firstAnalysisResult, setFirstAnalysisResult] = useState<{
     latitude: number;
@@ -38,6 +41,7 @@ const Index = () => {
   // Second photo analysis
   const [secondUploadedFile, setSecondUploadedFile] = useState<File | null>(null);
   const [secondImageUrl, setSecondImageUrl] = useState<string | null>(null);
+  const [secondPhotoMeta, setSecondPhotoMeta] = useState<PhotoMetadata | null>(null);
   const [secondPoints, setSecondPoints] = useState<ClickPoint[]>([]);
   const [secondAnalysisResult, setSecondAnalysisResult] = useState<{
     latitude: number;
@@ -51,6 +55,9 @@ const Index = () => {
     shadowLength: number;
   } | null>(null);
   
+  const [firstAzimuthConstraint, setFirstAzimuthConstraint] = useState<AzimuthConstraint | null>(null);
+  const [secondAzimuthConstraint, setSecondAzimuthConstraint] = useState<AzimuthConstraint | null>(null);
+
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // Ref for auto-scrolling to results
@@ -81,12 +88,14 @@ const Index = () => {
     }
   }, [firstShadowAnalysisData, secondShadowAnalysisData]);
 
-  const handleImageUpload = (file: File) => {
+  const handleImageUpload = async (file: File) => {
     const url = URL.createObjectURL(file);
-    
+    const meta = await extractPhotoMetadata(file);
+
     if (analysisMode === 'first') {
       setFirstUploadedFile(file);
       setFirstImageUrl(url);
+      setFirstPhotoMeta(meta);
       setFirstPoints([]);
       setFirstAnalysisResult(null);
       setFirstShadowAnalysisData(null);
@@ -95,6 +104,7 @@ const Index = () => {
     } else {
       setSecondUploadedFile(file);
       setSecondImageUrl(url);
+      setSecondPhotoMeta(meta);
       setSecondPoints([]);
       setSecondAnalysisResult(null);
       setSecondShadowAnalysisData(null);
@@ -247,15 +257,19 @@ const Index = () => {
     // Clear first photo data
     setFirstUploadedFile(null);
     setFirstImageUrl(null);
+    setFirstPhotoMeta(null);
+    setFirstAzimuthConstraint(null);
     setFirstPoints([]);
     setFirstAnalysisResult(null);
     setFirstShadowAnalysisData(null);
     setFirstAnalysisDate(null);
     setFirstAnalysisMeasurements(null);
-    
-    // Clear second photo data  
+
+    // Clear second photo data
     setSecondUploadedFile(null);
     setSecondImageUrl(null);
+    setSecondPhotoMeta(null);
+    setSecondAzimuthConstraint(null);
     setSecondPoints([]);
     setSecondAnalysisResult(null);
     setSecondShadowAnalysisData(null);
@@ -464,6 +478,8 @@ const Index = () => {
                     if (analysisMode === 'first') {
                       setFirstImageUrl(null);
                       setFirstUploadedFile(null);
+                      setFirstPhotoMeta(null);
+                      setFirstAzimuthConstraint(null);
                       setFirstPoints([]);
                       setFirstAnalysisResult(null);
                       setFirstShadowAnalysisData(null);
@@ -472,6 +488,8 @@ const Index = () => {
                     } else {
                       setSecondImageUrl(null);
                       setSecondUploadedFile(null);
+                      setSecondPhotoMeta(null);
+                      setSecondAzimuthConstraint(null);
                       setSecondPoints([]);
                       setSecondAnalysisResult(null);
                       setSecondShadowAnalysisData(null);
@@ -526,6 +544,8 @@ const Index = () => {
                     secondKnownTime={hasBothAnalyses ? secondAnalysisDate : null}
                     secondMeasurements={hasBothAnalyses ? secondAnalysisMeasurements : null}
                     mode={hasBothAnalyses ? 'intersection' : 'single'}
+                    azimuthConstraint={firstAzimuthConstraint}
+                    secondAzimuthConstraint={hasBothAnalyses ? secondAzimuthConstraint : null}
                   />
                 </div>
               )}
@@ -540,6 +560,10 @@ const Index = () => {
                 isAnalyzing={isAnalyzing}
                 measurements={getCurrentMeasurements()}
                 analysisMode={analysisMode}
+                photoMetadata={analysisMode === 'first' ? firstPhotoMeta : secondPhotoMeta}
+                onAzimuthConstraint={analysisMode === 'first'
+                  ? setFirstAzimuthConstraint
+                  : setSecondAzimuthConstraint}
               />
 
               {/* Info card */}
