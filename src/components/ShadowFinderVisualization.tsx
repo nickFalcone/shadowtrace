@@ -1,10 +1,16 @@
-import React, { useEffect, useRef } from 'react';
-import * as d3 from 'd3';
-import * as topojson from 'topojson';
+import React, { useEffect, useMemo } from 'react';
+import { MapContainer, TileLayer, LayersControl, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet.heat';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Zap } from 'lucide-react';
-import { ShadowAnalysisResult, AzimuthConstraint, applyAzimuthConstraint } from '@/lib/shadowfinder';
+import { ShadowFinderPoint, ShadowAnalysisResult, AzimuthConstraint, applyAzimuthConstraint } from '@/lib/shadowfinder';
+
+type HeatPoint = [number, number, number];
+
+const WARM_GRADIENT: Record<string, string> = { 0.4: '#FF4500', 0.65: '#FF9500', 0.85: '#FFD700', 1.0: '#FFFF33' };
+const COOL_GRADIENT: Record<string, string> = { 0.4: '#1E90FF', 0.7: '#00E5FF', 1.0: '#FFFFFF' };
 
 interface ShadowFinderVisualizationProps {
   analysisData: ShadowAnalysisResult;
@@ -24,6 +30,51 @@ interface ShadowFinderVisualizationProps {
   secondAzimuthConstraint?: AzimuthConstraint | null;
 }
 
+function filterPoints(
+  points: ShadowFinderPoint[],
+  constraint: AzimuthConstraint | null | undefined
+): { visible: ShadowFinderPoint[]; fallback: boolean } {
+  const base = points.filter(p => p.likelihood !== -1 && p.likelihood <= 0.15);
+  if (!constraint?.enabled) return { visible: base, fallback: false };
+  const filtered = applyAzimuthConstraint(base, constraint);
+  if (filtered.length === 0) return { visible: base, fallback: true };
+  return { visible: filtered, fallback: false };
+}
+
+function toHeatPoints(points: ShadowFinderPoint[]): HeatPoint[] {
+  return points.map(p => [p.lat, p.lng, 1 - p.likelihood / 0.15]);
+}
+
+interface HeatmapLayerProps {
+  points: HeatPoint[];
+  gradient: Record<string, string>;
+}
+
+function HeatmapLayer({ points, gradient }: HeatmapLayerProps) {
+  const map = useMap();
+
+  useEffect(() => {
+    const heat = L.heatLayer(points, { radius: 18, blur: 25, maxZoom: 8, gradient });
+    heat.addTo(map);
+
+    if (points.length > 0) {
+      let minLat = points[0][0], maxLat = points[0][0];
+      let minLng = points[0][1], maxLng = points[0][1];
+      for (const p of points) {
+        if (p[0] < minLat) minLat = p[0];
+        if (p[0] > maxLat) maxLat = p[0];
+        if (p[1] < minLng) minLng = p[1];
+        if (p[1] > maxLng) maxLng = p[1];
+      }
+      map.fitBounds([[minLat, minLng], [maxLat, maxLng]]);
+    }
+
+    return () => { map.removeLayer(heat); };
+  }, [points, gradient, map]);
+
+  return null;
+}
+
 export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps> = ({
   analysisData,
   knownTime,
@@ -35,356 +86,51 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
   azimuthConstraint,
   secondAzimuthConstraint,
 }) => {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { visible: firstVisible, fallback: firstFallback } = useMemo(
+    () => filterPoints(analysisData.points, azimuthConstraint),
+    [analysisData, azimuthConstraint]
+  );
 
-  useEffect(() => {
-    if (!svgRef.current || !containerRef.current || !analysisData) return;
-    
-    // For intersection mode, we need both analyses
-    if (mode === 'intersection' && (!secondAnalysisData || !secondKnownTime || !secondMeasurements)) {
-      console.warn('Intersection mode requires second analysis data');
-      return;
+  const { visible: secondVisible, fallback: secondFallback } = useMemo(() => {
+    if (!secondAnalysisData) return { visible: [], fallback: false };
+    return filterPoints(secondAnalysisData.points, secondAzimuthConstraint);
+  }, [secondAnalysisData, secondAzimuthConstraint]);
+
+  const { firstHeat, secondHeat, intersectionHeat, hasIntersection } = useMemo(() => {
+    if (mode === 'single') {
+      return { firstHeat: toHeatPoints(firstVisible), secondHeat: [], intersectionHeat: [], hasIntersection: false };
     }
 
-    // Clear previous visualization
-    d3.select(svgRef.current).selectAll('*').remove();
+    const firstMap = new Map<string, ShadowFinderPoint>();
+    for (const p of firstVisible) {
+      firstMap.set(`${p.lat.toFixed(1)},${p.lng.toFixed(1)}`, p);
+    }
 
-    // Small delay to ensure container is properly sized (like HTML version)
-    setTimeout(() => {
-      const container = containerRef.current;
-      if (!container) return;
-      
-      const width = container.clientWidth;
-      const height = container.clientHeight; // Dynamic height like HTML version
-      
-      console.log(`ShadowFinder React: Container dimensions: ${width}x${height}`);
-      
-      // Log the scaling comparison for debugging
-      console.log(`ShadowFinder React: Scale factor vs HTML: ${(width / 360).toFixed(2)}x width, ${(height / 400).toFixed(2)}x height`);
-      
-      // Create SVG
-      const svg = d3.select(svgRef.current)
-        .attr('width', width)
-        .attr('height', height);
+    const intersectionPoints: HeatPoint[] = [];
+    for (const p of secondVisible) {
+      const key = `${p.lat.toFixed(1)},${p.lng.toFixed(1)}`;
+      const firstPoint = firstMap.get(key);
+      if (firstPoint) {
+        const combinedLikelihood = Math.max(firstPoint.likelihood, p.likelihood);
+        intersectionPoints.push([p.lat, p.lng, 1 - combinedLikelihood / 0.15]);
+      }
+    }
 
-      // Create projection to match ShadowFinder's coordinate system exactly
-      const scale = width / (2 * Math.PI);
-      const translateX = width / 2;
-      const translateY = height / 2;
-      
-      console.log(`ShadowFinder React: Projection parameters:`);
-      console.log(`  Scale: ${scale}`);
-      console.log(`  Translate: [${translateX}, ${translateY}]`);
-      
-      const projection = d3.geoEquirectangular()
-        .scale(scale)  // Standard 1:1 degree-to-pixel ratio
-        .translate([translateX, translateY])
-        .center([0, 20])  // Slightly center on our main band latitude
-        .precision(0.1);
-        
-      // Test coordinate for debugging
-      const testCoord = projection([20, 40]);
-      console.log(`ShadowFinder React: Test [20,40] -> [${testCoord?.[0]?.toFixed(1)}, ${testCoord?.[1]?.toFixed(1)}]`);
+    if (intersectionPoints.length > 0) {
+      return { firstHeat: [], secondHeat: [], intersectionHeat: intersectionPoints, hasIntersection: true };
+    }
 
-      // Create path generator
-      const path = d3.geoPath().projection(projection);
+    return {
+      firstHeat: toHeatPoints(firstVisible),
+      secondHeat: toHeatPoints(secondVisible),
+      intersectionHeat: [],
+      hasIntersection: false,
+    };
+  }, [mode, firstVisible, secondVisible]);
 
-      // Draw world map
-      d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
-        .then((world: any) => {
-          // Draw countries - much clearer and more visible
-          svg.append('g')
-            .selectAll('path')
-            .data(topojson.feature(world, world.objects.countries).features)
-            .enter()
-            .append('path')
-            .attr('d', path)
-            .attr('fill', 'hsl(220 13% 35%)')      // Much lighter fill for better contrast
-            .attr('stroke', 'hsl(220 13% 50%)')    // Brighter stroke for visibility
-            .attr('stroke-width', 1.0);            // Thicker stroke for clarity
+  if (!analysisData) return null;
 
-          // Draw graticules (grid lines) - much clearer for better geographic context
-          const graticule = d3.geoGraticule();
-          svg.append('path')
-            .datum(graticule)
-            .attr('d', path)
-            .attr('fill', 'none')
-            .attr('stroke', 'hsl(195 100% 60% / 0.4)')   // Brighter and more visible
-            .attr('stroke-width', 0.5)                    // Thicker for clarity
-            .attr('stroke-dasharray', '2,2');
-
-          // CRITICAL: Draw shadow points AFTER map loads (like original HTML version)
-          // This ensures proper coordinate alignment with the world map
-          
-          // Filter and draw shadow analysis points based on mode
-          const firstVisibleBase = analysisData.points.filter(d =>
-            d.likelihood !== -1 && d.likelihood <= 0.15
-          );
-          const firstFiltered = azimuthConstraint?.enabled
-            ? applyAzimuthConstraint(firstVisibleBase, azimuthConstraint)
-            : null;
-          const firstAzimuthFallback = firstFiltered !== null && firstFiltered.length === 0;
-          const firstVisiblePoints = firstAzimuthFallback ? firstVisibleBase : (firstFiltered ?? firstVisibleBase);
-          
-          const cellSize = 1.2; // Small cells for precision
-
-          if (mode === 'single') {
-            // Single donut visualization (existing logic)
-            svg.selectAll('rect.first-analysis')
-              .data(firstVisiblePoints)
-              .enter()
-              .append('rect')
-              .attr('class', 'first-analysis')
-              .attr('x', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[0] - cellSize/2 : null;
-              })
-              .attr('y', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[1] - cellSize/2 : null;
-              })
-              .attr('width', cellSize)
-              .attr('height', cellSize)
-              .attr('fill', d => {
-                // Brighter, more vivid colors for single donut
-                const likelihood = d.likelihood;
-                if (likelihood <= 0.02) return '#FFFF33';      // Brighter yellow - ultra-precise
-                else if (likelihood <= 0.05) return '#FFD700'; // Bright gold - very precise  
-                else if (likelihood <= 0.08) return '#FF9500'; // Vivid orange - good
-                else if (likelihood <= 0.12) return '#FF7F00'; // Bright orange-red - moderate
-                else return '#FF6500';                         // Vivid orange - less probable
-              })
-              .attr('opacity', d => {
-                // Bright but transparent - allows map to show through clearly
-                const likelihood = d.likelihood;
-                if (likelihood <= 0.02) return 0.85;     // Ultra-precise: very bright but transparent
-                else if (likelihood <= 0.05) return 0.75; // Very precise: bright and visible
-                else if (likelihood <= 0.08) return 0.65; // Good: clearly visible  
-                else if (likelihood <= 0.12) return 0.55; // Moderate: visible
-                else return 0.45;                        // Others: moderate but visible
-              })
-              .style('display', d => {
-                // Hide the worst matches completely to create clean donut
-                const likelihood = d.likelihood;
-                return likelihood > 2.0 ? 'none' : 'block'; // Same threshold as HTML version
-              });
-          } else {
-            // Dual donut intersection visualization
-            const secondVisibleBase = secondAnalysisData!.points.filter(d =>
-              d.likelihood !== -1 && d.likelihood <= 0.15
-            );
-            const secondFiltered = secondAzimuthConstraint?.enabled
-              ? applyAzimuthConstraint(secondVisibleBase, secondAzimuthConstraint)
-              : null;
-            const secondAzimuthFallback = secondFiltered !== null && secondFiltered.length === 0;
-            const secondVisiblePoints = secondAzimuthFallback ? secondVisibleBase : (secondFiltered ?? secondVisibleBase);
-            
-            // Create lookup for intersection calculation
-            const firstPointsMap = new Map();
-            firstVisiblePoints.forEach(point => {
-              const key = `${point.lat.toFixed(1)},${point.lng.toFixed(1)}`;
-              firstPointsMap.set(key, point);
-            });
-            
-            // Find intersection points
-            const intersectionPoints = [];
-            secondVisiblePoints.forEach(secondPoint => {
-              const key = `${secondPoint.lat.toFixed(1)},${secondPoint.lng.toFixed(1)}`;
-              const firstPoint = firstPointsMap.get(key);
-              if (firstPoint) {
-                intersectionPoints.push({
-                  ...secondPoint,
-                  combinedLikelihood: Math.max(firstPoint.likelihood, secondPoint.likelihood),
-                  isIntersection: true
-                });
-              }
-            });
-            
-            // Draw first analysis (yellow/orange - slightly transparent)
-            svg.selectAll('rect.first-analysis')
-              .data(firstVisiblePoints)
-              .enter()
-              .append('rect')
-              .attr('class', 'first-analysis')
-              .attr('x', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[0] - cellSize/2 : null;
-              })
-              .attr('y', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[1] - cellSize/2 : null;
-              })
-              .attr('width', cellSize)
-              .attr('height', cellSize)
-              .attr('fill', d => {
-                // Brighter yellow/orange for first photo (dual mode)
-                const likelihood = d.likelihood;
-                if (likelihood <= 0.02) return '#FFFF44';      // Brighter yellow
-                else if (likelihood <= 0.05) return '#FFD700'; // Bright gold
-                else if (likelihood <= 0.08) return '#FF9500'; // Vivid orange
-                else if (likelihood <= 0.12) return '#FF7F00'; // Bright orange-red
-                else return '#FF6500';                         // Vivid orange
-              })
-              .attr('opacity', d => {
-                // Higher opacity for better visibility in dual mode
-                const likelihood = d.likelihood;
-                if (likelihood <= 0.02) return 0.6;      // More visible
-                else if (likelihood <= 0.05) return 0.5; // Clear
-                else if (likelihood <= 0.08) return 0.4;  // Moderate
-                else if (likelihood <= 0.12) return 0.35; // Visible
-                else return 0.3;                        // Subtle but clear
-              })
-              .style('display', d => {
-                const likelihood = d.likelihood;
-                return likelihood > 2.0 ? 'none' : 'block';
-              });
-              
-            // Draw second analysis (blue/cyan)
-            svg.selectAll('rect.second-analysis')
-              .data(secondVisiblePoints)
-              .enter()
-              .append('rect')
-              .attr('class', 'second-analysis')
-              .attr('x', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[0] - cellSize/2 : null;
-              })
-              .attr('y', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[1] - cellSize/2 : null;
-              })
-              .attr('width', cellSize)
-              .attr('height', cellSize)
-              .attr('fill', d => {
-                // Brighter cyan/blue for second photo (dual mode)
-                const likelihood = d.likelihood;
-                if (likelihood <= 0.02) return '#00FFFF';      // Bright cyan - ultra-precise
-                else if (likelihood <= 0.05) return '#00E5FF'; // Bright light blue - very precise  
-                else if (likelihood <= 0.08) return '#1E90FF'; // Dodger blue - good
-                else if (likelihood <= 0.12) return '#4682B4'; // Steel blue - moderate
-                else return '#4169E1';                         // Royal blue - less probable
-              })
-              .attr('opacity', d => {
-                // Higher opacity for better visibility in dual mode
-                const likelihood = d.likelihood;
-                if (likelihood <= 0.02) return 0.6;      // More visible
-                else if (likelihood <= 0.05) return 0.5; // Clear
-                else if (likelihood <= 0.08) return 0.4;  // Moderate
-                else if (likelihood <= 0.12) return 0.35; // Visible
-                else return 0.3;                        // Subtle but clear
-              })
-              .style('display', d => {
-                const likelihood = d.likelihood;
-                return likelihood > 2.0 ? 'none' : 'block';
-              });
-              
-            // Draw intersection points (bright green/white - most prominent)
-            svg.selectAll('rect.intersection')
-              .data(intersectionPoints)
-              .enter()
-              .append('rect')
-              .attr('class', 'intersection')
-              .attr('x', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[0] - cellSize/2 : null;
-              })
-              .attr('y', d => {
-                const coords = projection([d.lng, d.lat]);
-                return coords ? coords[1] - cellSize/2 : null;
-              })
-              .attr('width', cellSize * 1.2) // Slightly larger for prominence
-              .attr('height', cellSize * 1.2)
-              .attr('fill', d => {
-                const likelihood = d.combinedLikelihood;
-                if (likelihood <= 0.02) return '#FFFFFF';      // White - ultra-precise intersection
-                else if (likelihood <= 0.05) return '#00FF00'; // Bright green - very precise  
-                else if (likelihood <= 0.08) return '#32CD32'; // Lime green - good
-                else if (likelihood <= 0.12) return '#90EE90'; // Light green - moderate
-                else return '#98FB98';                         // Pale green - less probable
-              })
-              .attr('opacity', d => {
-                // High opacity for intersection - most important
-                const likelihood = d.combinedLikelihood;
-                if (likelihood <= 0.02) return 0.9;      // Ultra-precise: very visible
-                else if (likelihood <= 0.05) return 0.8; // Very precise: prominent
-                else if (likelihood <= 0.08) return 0.7;  // Good: clearly visible
-                else if (likelihood <= 0.12) return 0.6; // Moderate: visible
-                else return 0.5;                         // Others: moderate
-              })
-              .style('display', d => {
-                const likelihood = d.combinedLikelihood;
-                return likelihood > 2.0 ? 'none' : 'block';
-              });
-          }
-
-          // Add title based on mode
-          if (mode === 'single') {
-            svg.append('text')
-              .attr('x', width / 2)
-              .attr('y', 20)
-              .attr('text-anchor', 'middle')
-              .style('font-size', '14px')
-              .style('font-weight', 'bold')
-              .style('fill', 'hsl(195 100% 50%)')
-              .text(`Possible Locations at ${knownTime.toISOString().substring(0, 19).replace('T', ' ')} UTC`);
-
-            // Add subtitle
-            svg.append('text')
-              .attr('x', width / 2)
-              .attr('y', 40)
-              .attr('text-anchor', 'middle')
-              .style('font-size', '12px')
-              .style('fill', 'hsl(215 20.2% 65.1%)')
-              .text(`Object: ${measurements.objectHeight.toFixed(0)}px, Shadow: ${measurements.shadowLength.toFixed(0)}px (ShadowFinder Algorithm)`);
-          } else {
-            // Intersection mode titles
-            svg.append('text')
-              .attr('x', width / 2)
-              .attr('y', 20)
-              .attr('text-anchor', 'middle')
-              .style('font-size', '14px')
-              .style('font-weight', 'bold')
-              .style('fill', 'hsl(195 100% 50%)')
-              .text(`Intersection Analysis - Precise Location Estimate`);
-
-            // Add subtitle with both times
-            svg.append('text')
-              .attr('x', width / 2)
-              .attr('y', 35)
-              .attr('text-anchor', 'middle')
-              .style('font-size', '10px')
-              .style('fill', 'hsl(215 20.2% 65.1%)')
-              .text(`First: ${knownTime.toISOString().substring(0, 19).replace('T', ' ')} UTC`);
-              
-            svg.append('text')
-              .attr('x', width / 2)
-              .attr('y', 48)
-              .attr('text-anchor', 'middle')
-              .style('font-size', '10px')
-              .style('fill', 'hsl(215 20.2% 65.1%)')
-              .text(`Second: ${secondKnownTime!.toISOString().substring(0, 19).replace('T', ' ')} UTC`);
-          }
-        })
-        .catch(error => {
-          console.error('Error loading world map:', error);
-        });
-    }, 50); // Small delay like HTML version
-
-  }, [analysisData, knownTime, measurements, secondAnalysisData, secondKnownTime, secondMeasurements, mode, azimuthConstraint, secondAzimuthConstraint]);
-
-  if (!analysisData) {
-    return null;
-  }
-
-  // Compute fallback state for badge/warning (mirrors D3 useEffect filter logic)
-  const firstVisibleBase = analysisData.points.filter(d => d.likelihood !== -1 && d.likelihood <= 0.15);
-  const firstFiltered = azimuthConstraint?.enabled ? applyAzimuthConstraint(firstVisibleBase, azimuthConstraint) : null;
-  const firstAzimuthFallback = firstFiltered !== null && firstFiltered.length === 0;
-
-  const secondVisibleBase = secondAnalysisData?.points.filter(d => d.likelihood !== -1 && d.likelihood <= 0.15) ?? [];
-  const secondFiltered = secondAzimuthConstraint?.enabled ? applyAzimuthConstraint(secondVisibleBase, secondAzimuthConstraint!) : null;
-  const secondAzimuthFallback = secondFiltered !== null && secondFiltered.length === 0;
+  const showFallbackWarning = firstFallback || secondFallback || (mode === 'intersection' && !hasIntersection && secondAnalysisData);
 
   return (
     <Card className="cyber-border overflow-hidden">
@@ -397,23 +143,23 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
                 {mode === 'single' ? 'ShadowFinder Analysis' : 'Dual Photo Intersection'}
               </h3>
               <p className="text-xs text-muted-foreground">
-                {mode === 'single' 
+                {mode === 'single'
                   ? `Showing ${analysisData.statistics.visibleBandPoints} high-probability locations`
-                  : `Intersection analysis for maximum precision`
+                  : 'Intersection analysis for maximum precision'
                 }
               </p>
             </div>
           </div>
-          
+
           <div className="flex gap-2">
             <Badge variant="outline" className="border-cyber-primary/30 text-cyber-primary">
               <Zap className="w-3 h-3 mr-1" />
               {mode === 'single'
                 ? `${analysisData.statistics.ultraTightBandPoints} ultra-precise`
-                : `Dual Photo Mode`
+                : 'Dual Photo Mode'
               }
             </Badge>
-            {azimuthConstraint?.enabled && !firstAzimuthFallback && (
+            {azimuthConstraint?.enabled && !firstFallback && (
               <Badge variant="outline" className="border-cyber-secondary/30 text-cyber-secondary">
                 🧭 Azimuth-constrained
               </Badge>
@@ -421,21 +167,62 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
           </div>
         </div>
       </div>
-      
-      <div ref={containerRef} className="w-full" style={{ height: '600px', margin: '0 auto' }}>
-        <svg ref={svgRef} className="w-full h-full bg-background"></svg>
+
+      <div style={{ height: '600px', position: 'relative', zIndex: 0 }}>
+        <MapContainer
+          center={[20, 0]}
+          zoom={2}
+          style={{ height: '100%', width: '100%' }}
+          scrollWheelZoom={true}
+        >
+          <LayersControl position="topright">
+            <LayersControl.BaseLayer checked name="Streets">
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              />
+            </LayersControl.BaseLayer>
+            <LayersControl.BaseLayer name="Satellite">
+              <TileLayer
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+              />
+            </LayersControl.BaseLayer>
+          </LayersControl>
+
+          {mode === 'single' && firstHeat.length > 0 && (
+            <HeatmapLayer points={firstHeat} gradient={WARM_GRADIENT} />
+          )}
+
+          {mode === 'intersection' && hasIntersection && intersectionHeat.length > 0 && (
+            <HeatmapLayer points={intersectionHeat} gradient={WARM_GRADIENT} />
+          )}
+
+          {mode === 'intersection' && !hasIntersection && firstHeat.length > 0 && (
+            <HeatmapLayer points={firstHeat} gradient={WARM_GRADIENT} />
+          )}
+
+          {mode === 'intersection' && !hasIntersection && secondHeat.length > 0 && (
+            <HeatmapLayer points={secondHeat} gradient={COOL_GRADIENT} />
+          )}
+        </MapContainer>
       </div>
-      
+
       <div className="p-4 border-t border-border/50">
         <div className="text-xs text-muted-foreground text-center">
           {mode === 'single'
-            ? 'Bright yellow shows ultra-precise matches. Orange areas show probable locations. Empty spaces indicate nighttime regions.'
-            : 'White/Green areas show intersection of both analyses (highest precision). Yellow = First photo, Blue = Second photo. Empty spaces indicate nighttime regions.'
+            ? 'Bright yellow shows ultra-precise matches. Orange areas show probable locations.'
+            : hasIntersection
+              ? 'Single heatmap showing the intersection of both analyses — highest precision region.'
+              : 'Yellow = First photo band. Blue = Second photo band. No intersection found.'
           }
         </div>
-        {(firstAzimuthFallback || secondAzimuthFallback) && (
+        {showFallbackWarning && (
           <div className="text-xs text-amber-400 text-center mt-1">
-            Azimuth constraint produced no matches — showing shadow band only
+            {(firstFallback || secondFallback)
+              ? 'Azimuth constraint produced no matches — showing shadow band only'
+              : 'No intersection found — showing both shadow bands'
+            }
           </div>
         )}
       </div>
