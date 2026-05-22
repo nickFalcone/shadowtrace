@@ -171,7 +171,7 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
       <div style={{ height: '600px', position: 'relative', zIndex: 0 }}>
         <MapContainer
           center={[20, 0]}
-          zoom={2}
+          zoom={1}
           style={{ height: '100%', width: '100%' }}
           scrollWheelZoom={true}
         >
