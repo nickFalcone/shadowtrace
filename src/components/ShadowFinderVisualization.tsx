@@ -30,6 +30,8 @@ interface ShadowFinderVisualizationProps {
   mode?: 'single' | 'intersection';
   azimuthConstraint?: AzimuthConstraint | null;
   secondAzimuthConstraint?: AzimuthConstraint | null;
+  gpsCoords?: { lat: number; lng: number } | null;
+  secondGpsCoords?: { lat: number; lng: number } | null;
 }
 
 function filterPoints(
@@ -80,6 +82,39 @@ function HeatmapLayer({ points, gradient, primary = false }: HeatmapLayerProps) 
   return null;
 }
 
+interface GpsMarkerLayerProps {
+  coords: { lat: number; lng: number };
+  label: string;
+}
+
+function GpsMarkerLayer({ coords, label }: GpsMarkerLayerProps) {
+  const map = useMap();
+
+  useEffect(() => {
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #00e5ff;
+        border: 2px solid #ffffff;
+        box-shadow: 0 0 6px #00e5ff;
+      "></div>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+    });
+
+    const marker = L.marker([coords.lat, coords.lng], { icon })
+      .addTo(map)
+      .bindPopup(`<b>${label}</b><br>${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`);
+
+    return () => { map.removeLayer(marker); };
+  }, [coords.lat, coords.lng, map, label]);
+
+  return null;
+}
+
 export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps> = ({
   analysisData,
   knownTime,
@@ -90,6 +125,8 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
   mode = 'single',
   azimuthConstraint,
   secondAzimuthConstraint,
+  gpsCoords,
+  secondGpsCoords,
 }) => {
   const { visible: firstVisible, fallback: firstFallback } = useMemo(
     () => filterPoints(analysisData.points, azimuthConstraint),
@@ -209,6 +246,14 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
 
           {mode === 'intersection' && !hasIntersection && secondHeat.length > 0 && (
             <HeatmapLayer points={secondHeat} gradient={COOL_GRADIENT} />
+          )}
+
+          {gpsCoords && (
+            <GpsMarkerLayer coords={gpsCoords} label="Photo 1 GPS" />
+          )}
+
+          {secondGpsCoords && (
+            <GpsMarkerLayer coords={secondGpsCoords} label="Photo 2 GPS" />
           )}
         </MapContainer>
       </div>
