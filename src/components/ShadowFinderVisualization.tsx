@@ -66,6 +66,9 @@ function HeatmapLayer({ points, gradient, primary = false }: HeatmapLayerProps) 
   const map = useMap();
   const hasFit = useRef(false);
 
+  // Add a Leaflet heatmap layer to the map (imperative third-party library API).
+  // Cleanup: remove the layer when deps change or the component unmounts to prevent duplicate overlays.
+  // Deps: [points, gradient, map, primary] — recreate whenever any rendering input changes.
   useEffect(() => {
     const heat = L.heatLayer(points, { radius: 18, blur: 25, maxZoom: 8, gradient });
     heat.addTo(map);
@@ -97,6 +100,9 @@ interface GpsMarkerLayerProps {
 function GpsMarkerLayer({ coords, label }: GpsMarkerLayerProps) {
   const map = useMap();
 
+  // Add a Leaflet marker to the map for the GPS pin (imperative third-party library API).
+  // Cleanup: remove the marker to prevent duplicate pins when coords or label change.
+  // Deps: [coords.lat, coords.lng, map, label] — recreate if position or label changes.
   useEffect(() => {
     const icon = L.divIcon({
       className: '',
@@ -164,6 +170,9 @@ interface GpsConeLayerProps {
 function GpsConeLayer({ coords, bearingDeg, fovDeg }: GpsConeLayerProps) {
   const map = useMap();
 
+  // Add a Leaflet polygon representing the camera FOV cone (imperative third-party library API).
+  // Cleanup: remove the polygon to prevent duplicate cones when geometry changes.
+  // Deps: [coords.lat, coords.lng, bearingDeg, fovDeg, map] — recreate if any cone input changes.
   useEffect(() => {
     const RADIUS_KM = 10;
     const STEPS = 30;

@@ -95,7 +95,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       const match = result.utcOffset.match(/^([+-])(\d{2}):(\d{2})$/);
       if (match) {
         const sign = match[1] === '+' ? 1 : -1;
-        const offsetMs = sign * (parseInt(match[2]) * 60 + parseInt(match[3])) * 60_000;
+        const offsetMs = sign * (parseInt(match[2]) * 60 + parseInt(match[3])) * 60000;
         const computed = new Date(result.localTime.getTime() - offsetMs);
         if (isValid(computed)) {
           result.utcTime = computed;

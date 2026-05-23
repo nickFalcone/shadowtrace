@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { RotateCcw, Target, Upload } from 'lucide-react';
@@ -37,6 +37,10 @@ export const InteractiveImage: React.FC<InteractiveImageProps> = ({
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Sync container pixel dimensions with a ResizeObserver (browser API) so the
+  // loupe position math stays accurate when the layout reflows.
+  // Cleanup: disconnect the observer to prevent memory leaks on unmount.
+  // Deps: [] — observer is set up once on mount; containerRef is a stable ref.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
