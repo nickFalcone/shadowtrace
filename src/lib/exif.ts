@@ -7,6 +7,7 @@ export interface PhotoMetadata {
   hasGPSTime: boolean;
   compassBearing: number | null;
   compassRef: 'T' | 'M' | null;
+  gpsCoords: { lat: number; lng: number } | null;
 }
 
 export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | null> {
@@ -15,7 +16,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
     // DateTimeOriginal string. exifr's parsed Date bakes in the browser's local TZ, making
     // getHours() return browser-local hours rather than EXIF local hours. Parsing the raw
     // "YYYY:MM:DD HH:MM:SS" string ourselves avoids all browser-timezone ambiguity.
-    const [exif, exifRaw] = await Promise.all([
+    const [exif, exifRaw, gps] = await Promise.all([
       exifr.parse(file, {
         pick: [
           'OffsetTimeOriginal',
@@ -29,6 +30,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
         pick: ['DateTimeOriginal'],
         reviveValues: false,
       }),
+      exifr.gps(file).catch(() => null),
     ]);
 
     if (!exif && !exifRaw) return null;
@@ -40,6 +42,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       hasGPSTime: false,
       compassBearing: null,
       compassRef: null,
+      gpsCoords: null,
     };
 
     const isValid = (d: unknown): d is Date =>
@@ -105,7 +108,11 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       result.compassRef = exif.GPSImgDirectionRef as 'T' | 'M';
     }
 
-    if (!result.localTime && !result.utcTime) return null;
+    if (gps?.latitude != null && gps?.longitude != null) {
+      result.gpsCoords = { lat: gps.latitude, lng: gps.longitude };
+    }
+
+    if (!result.localTime && !result.utcTime && !result.gpsCoords) return null;
 
     const source = result.hasGPSTime ? 'gps' : result.utcOffset ? 'offset' : 'local-only';
     console.log('[exif]', {
