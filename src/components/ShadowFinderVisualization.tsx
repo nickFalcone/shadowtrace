@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, LayersControl, useMap } from 'react-leaflet';
-import L from 'leaflet';
+import * as L from 'leaflet';
 import 'leaflet.heat';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,8 @@ import { MapPin, Zap } from 'lucide-react';
 import { ShadowFinderPoint, ShadowAnalysisResult, AzimuthConstraint, applyAzimuthConstraint } from '@/lib/shadowfinder';
 
 type HeatPoint = [number, number, number];
+
+const LIKELIHOOD_CUTOFF = 0.15;
 
 const WARM_GRADIENT: Record<string, string> = { 0.4: '#FF4500', 0.65: '#FF9500', 0.85: '#FFD700', 1.0: '#FFFF33' };
 const COOL_GRADIENT: Record<string, string> = { 0.4: '#1E90FF', 0.7: '#00E5FF', 1.0: '#FFFFFF' };
@@ -34,7 +36,7 @@ function filterPoints(
   points: ShadowFinderPoint[],
   constraint: AzimuthConstraint | null | undefined
 ): { visible: ShadowFinderPoint[]; fallback: boolean } {
-  const base = points.filter(p => p.likelihood !== -1 && p.likelihood <= 0.15);
+  const base = points.filter(p => p.likelihood !== -1 && p.likelihood <= LIKELIHOOD_CUTOFF);
   if (!constraint?.enabled) return { visible: base, fallback: false };
   const filtered = applyAzimuthConstraint(base, constraint);
   if (filtered.length === 0) return { visible: base, fallback: true };
@@ -42,22 +44,24 @@ function filterPoints(
 }
 
 function toHeatPoints(points: ShadowFinderPoint[]): HeatPoint[] {
-  return points.map(p => [p.lat, p.lng, 1 - p.likelihood / 0.15]);
+  return points.map(p => [p.lat, p.lng, 1 - p.likelihood / LIKELIHOOD_CUTOFF]);
 }
 
 interface HeatmapLayerProps {
   points: HeatPoint[];
   gradient: Record<string, string>;
+  primary?: boolean;
 }
 
-function HeatmapLayer({ points, gradient }: HeatmapLayerProps) {
+function HeatmapLayer({ points, gradient, primary = false }: HeatmapLayerProps) {
   const map = useMap();
+  const hasFit = useRef(false);
 
   useEffect(() => {
     const heat = L.heatLayer(points, { radius: 18, blur: 25, maxZoom: 8, gradient });
     heat.addTo(map);
 
-    if (points.length > 0) {
+    if (primary && !hasFit.current && points.length > 0) {
       let minLat = points[0][0], maxLat = points[0][0];
       let minLng = points[0][1], maxLng = points[0][1];
       for (const p of points) {
@@ -67,10 +71,11 @@ function HeatmapLayer({ points, gradient }: HeatmapLayerProps) {
         if (p[1] > maxLng) maxLng = p[1];
       }
       map.fitBounds([[minLat, minLng], [maxLat, maxLng]]);
+      hasFit.current = true;
     }
 
     return () => { map.removeLayer(heat); };
-  }, [points, gradient, map]);
+  }, [points, gradient, map, primary]);
 
   return null;
 }
@@ -191,15 +196,15 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
           </LayersControl>
 
           {mode === 'single' && firstHeat.length > 0 && (
-            <HeatmapLayer points={firstHeat} gradient={WARM_GRADIENT} />
+            <HeatmapLayer points={firstHeat} gradient={WARM_GRADIENT} primary />
           )}
 
           {mode === 'intersection' && hasIntersection && intersectionHeat.length > 0 && (
-            <HeatmapLayer points={intersectionHeat} gradient={WARM_GRADIENT} />
+            <HeatmapLayer points={intersectionHeat} gradient={WARM_GRADIENT} primary />
           )}
 
           {mode === 'intersection' && !hasIntersection && firstHeat.length > 0 && (
-            <HeatmapLayer points={firstHeat} gradient={WARM_GRADIENT} />
+            <HeatmapLayer points={firstHeat} gradient={WARM_GRADIENT} primary />
           )}
 
           {mode === 'intersection' && !hasIntersection && secondHeat.length > 0 && (
