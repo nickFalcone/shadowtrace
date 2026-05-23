@@ -157,7 +157,7 @@ export function getUtcOffsetOptions(): { label: string; minutes: number }[] {
 
 /** Apply a UTC offset (minutes) to a local Date to get UTC Date */
 export function applyUtcOffset(localTime: Date, offsetMinutes: number): Date {
-  return new Date(localTime.getTime() - offsetMinutes * 60_000);
+  return new Date(localTime.getTime() - offsetMinutes * 60000);
 }
 
 /** Format a Date as "YYYY-MM-DD" for date input values */

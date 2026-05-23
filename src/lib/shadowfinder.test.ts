@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   calculateMeasurementsFromPixels,
   convertPercentageToPixels,
@@ -255,16 +255,19 @@ describe('estimateBestLocation', () => {
 
 describe('generateShadowFinderGrid', () => {
   // Grid is 290 latitudes × 720 longitudes = 208,800 points.
-  // This test calls SunCalc ~200k times and takes ~1–2 seconds.
+  // Computed once for all tests in this block — each SunCalc sweep takes ~1–2s.
   const GRID_TIME = new Date('2024-06-21T12:00:00.000Z');
+  let points: ShadowFinderPoint[];
 
-  it('generates exactly 208,800 points covering the full grid', { timeout: 10000 }, () => {
-    const points = generateShadowFinderGrid(GRID_TIME, 100, 100);
+  beforeAll(() => {
+    points = generateShadowFinderGrid(GRID_TIME, 100, 100);
+  }, 15000);
+
+  it('generates exactly 208,800 points covering the full grid', () => {
     expect(points).toHaveLength(208800);
   });
 
-  it('keeps all lat/lng within the defined grid bounds', { timeout: 10000 }, () => {
-    const points = generateShadowFinderGrid(GRID_TIME, 100, 100);
+  it('keeps all lat/lng within the defined grid bounds', () => {
     for (const p of points) {
       expect(p.lat).toBeGreaterThanOrEqual(-60);
       expect(p.lat).toBeLessThanOrEqual(84.5);
@@ -273,30 +276,26 @@ describe('generateShadowFinderGrid', () => {
     }
   });
 
-  it('marks night points as -1 and day points as ≥ 0', { timeout: 10000 }, () => {
-    const points = generateShadowFinderGrid(GRID_TIME, 100, 100);
+  it('marks night points as -1 and day points as ≥ 0', () => {
     for (const p of points) {
       expect(p.likelihood === -1 || p.likelihood >= 0).toBe(true);
     }
   });
 
-  it('keeps all sunAzimuthDeg in [0, 360)', { timeout: 10000 }, () => {
-    const points = generateShadowFinderGrid(GRID_TIME, 100, 100);
+  it('keeps all sunAzimuthDeg in [0, 360)', () => {
     for (const p of points) {
       expect(p.sunAzimuthDeg).toBeGreaterThanOrEqual(0);
       expect(p.sunAzimuthDeg).toBeLessThan(360);
     }
   });
 
-  it('marks the equator at Greenwich Meridian as daytime at noon UTC', { timeout: 10000 }, () => {
-    const points = generateShadowFinderGrid(GRID_TIME, 100, 100);
+  it('marks the equator at Greenwich Meridian as daytime at noon UTC', () => {
     const noonPoint = points.find(p => p.lat === 0 && p.lng === 0);
     expect(noonPoint).toBeDefined();
     expect(noonPoint!.likelihood).not.toBe(-1);
   });
 
-  it('marks the antimeridian (lng≈179.5) at the equator as nighttime at noon UTC', { timeout: 10000 }, () => {
-    const points = generateShadowFinderGrid(GRID_TIME, 100, 100);
+  it('marks the antimeridian (lng≈179.5) at the equator as nighttime at noon UTC', () => {
     const midnightPoint = points.find(p => p.lat === 0 && p.lng === 179.5);
     expect(midnightPoint).toBeDefined();
     expect(midnightPoint!.likelihood).toBe(-1);
