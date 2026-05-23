@@ -40,6 +40,24 @@ export interface ShadowAnalysisResult {
 }
 
 /**
+ * Compute the ShadowFinder likelihood score for a single grid point.
+ * Returns the absolute relative difference between the shadow ratio implied
+ * by the sun's altitude and the measured shadow ratio.
+ *
+ *   likelihood = |measuredRatio / tan(sunAltitudeRad) - 1|
+ *
+ * A value of 0 means the sun altitude perfectly explains the measured shadow.
+ * Only valid when sunAltitudeRad > 0 (daytime points).
+ */
+export function computeLikelihood(
+  objectHeight: number,
+  shadowLength: number,
+  sunAltitudeRad: number
+): number {
+  return Math.abs((objectHeight / shadowLength) / Math.tan(sunAltitudeRad) - 1);
+}
+
+/**
  * Generate ShadowFinder grid using the exact algorithm approach
  * This matches the 290x720 grid structure from the reference implementation
  */
@@ -50,34 +68,22 @@ export function generateShadowFinderGrid(
 ): ShadowFinderPoint[] {
   const points: ShadowFinderPoint[] = [];
   const angularResolution = 0.5; // degrees - same as ShadowFinder
-  
-  console.log(`ShadowFinder: Starting calculation for ${knownTime.toISOString()}`);
-  console.log(`ShadowFinder: Object height: ${objectHeight}, Shadow length: ${shadowLength}`);
-  
+
   // Sample points across the world (EXACT same range as ShadowFinder)
   for (let lat = -60.0; lat <= 84.5; lat += angularResolution) {
     for (let lng = -180.0; lng <= 179.5; lng += angularResolution) {
       const sunPos = SunCalc.getPosition(knownTime, lat, lng);
       const sunAltitudeRad = sunPos.altitude;
-      
+
       let likelihood: number;
-      
+
       // ShadowFinder's exact approach: set night areas to -1
       if (sunAltitudeRad <= 0) {
         likelihood = -1; // Night area - will be filtered out in visualization
       } else {
-        // Calculate expected shadow length at this location using ShadowFinder formula:
-        // shadow_length = object_height / tan(sun_altitude)
-        const calculatedShadowLength = objectHeight / Math.tan(sunAltitudeRad);
-        
-        // Calculate relative difference (ShadowFinder approach):
-        // (calculated - measured) / measured
-        const relativeDiff = (calculatedShadowLength - shadowLength) / shadowLength;
-        
-        // ShadowFinder's likelihood calculation: abs(relative_difference)
-        likelihood = Math.abs(relativeDiff);
+        likelihood = computeLikelihood(objectHeight, shadowLength, sunAltitudeRad);
       }
-      
+
       // SunCalc azimuth: 0=South, positive=West, negative=East (radians)
       // Convert to 0–360 compass bearing (0=North, clockwise)
       const sunAzimuthDeg = (sunPos.azimuth * 180 / Math.PI + 180 + 360) % 360;
@@ -90,7 +96,7 @@ export function generateShadowFinderGrid(
       });
     }
   }
-  
+
   return points;
 }
 
@@ -109,36 +115,36 @@ export function analyzeShadowMeasurements(input: ShadowAnalysisInput): ShadowAna
   
   // Generate grid data using ShadowFinder's exact approach
   const points = generateShadowFinderGrid(input.knownTime, input.objectHeight, input.shadowLength);
-  
-  // Calculate statistics
-  const nightPoints = points.filter(p => p.likelihood === -1).length;
-  const validPoints = points.filter(p => p.likelihood !== -1).length;
-  const ultraTightBandPoints = points.filter(p => p.likelihood >= 0 && p.likelihood <= 0.05).length;
-  const tightBandPoints = points.filter(p => p.likelihood >= 0 && p.likelihood <= 0.08).length;
-  const visibleBandPoints = points.filter(p => p.likelihood >= 0 && p.likelihood <= 0.15).length;
-  
-  // Find main band coordinates (using ultra-tight band for precision)
-  const mainBandPoints = points.filter(p => p.likelihood >= 0 && p.likelihood <= 0.1);
-  const latRange: [number, number] = mainBandPoints.length > 0 ? [
-    Math.min(...mainBandPoints.map(p => p.lat)),
-    Math.max(...mainBandPoints.map(p => p.lat))
-  ] : [0, 0];
-  const lngRange: [number, number] = mainBandPoints.length > 0 ? [
-    Math.min(...mainBandPoints.map(p => p.lng)),
-    Math.max(...mainBandPoints.map(p => p.lng))
-  ] : [0, 0];
-  
-  // Log debug information
-  console.log(`ShadowFinder: Total grid points: ${points.length}`);
-  console.log(`ShadowFinder: Valid points (sun above horizon): ${validPoints}`);
-  console.log(`ShadowFinder: Night points (-1): ${nightPoints}`);
-  console.log(`ShadowFinder: Ultra-tight band (0-0.05) points: ${ultraTightBandPoints}`);
-  console.log(`ShadowFinder: Tight band (0-0.08) points: ${tightBandPoints}`);
-  console.log(`ShadowFinder: Visible band (0-0.15) points: ${visibleBandPoints}`);
-  console.log(`ShadowFinder: Main band coordinates:`);
-  console.log(`  Lat range: ${latRange[0]} to ${latRange[1]}`);
-  console.log(`  Lng range: ${lngRange[0]} to ${lngRange[1]}`);
-  
+
+  // Single pass over all 208,800 points: collect counts and running min/max.
+  // Replaces 7 separate .filter() passes that previously visited ~1.46M elements.
+  let nightPoints = 0, validPoints = 0;
+  let ultraTightBandPoints = 0, tightBandPoints = 0, visibleBandPoints = 0;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  let hasMainBand = false;
+
+  for (const p of points) {
+    const l = p.likelihood;
+    if (l === -1) {
+      nightPoints++;
+      continue;
+    }
+    validPoints++;
+    if (l <= 0.05) ultraTightBandPoints++;
+    if (l <= 0.08) tightBandPoints++;
+    if (l <= 0.15) visibleBandPoints++;
+    if (l <= 0.1) {
+      hasMainBand = true;
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+    }
+  }
+
+  const latRange: [number, number] = hasMainBand ? [minLat, maxLat] : [0, 0];
+  const lngRange: [number, number] = hasMainBand ? [minLng, maxLng] : [0, 0];
+
   return {
     points,
     mainBandCoordinates: {
@@ -231,13 +237,22 @@ export function estimateBestLocation(result: ShadowAnalysisResult): {
     throw new Error('No suitable location matches found');
   }
   
-  // Calculate centroid of best points
-  const avgLat = bestPoints.reduce((sum, p) => sum + p.lat, 0) / bestPoints.length;
-  const avgLng = bestPoints.reduce((sum, p) => sum + p.lng, 0) / bestPoints.length;
-  
+  // Single pass: centroid + running min/max (spread operator on large arrays risks stack overflow)
+  let sumLat = 0, sumLng = 0;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const p of bestPoints) {
+    sumLat += p.lat; sumLng += p.lng;
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+  }
+  const avgLat = sumLat / bestPoints.length;
+  const avgLng = sumLng / bestPoints.length;
+
   // Calculate accuracy based on spread of points
-  const latSpread = Math.max(...bestPoints.map(p => p.lat)) - Math.min(...bestPoints.map(p => p.lat));
-  const lngSpread = Math.max(...bestPoints.map(p => p.lng)) - Math.min(...bestPoints.map(p => p.lng));
+  const latSpread = maxLat - minLat;
+  const lngSpread = maxLng - minLng;
   
   // Convert degrees to approximate km (rough estimation)
   const accuracy = Math.max(latSpread * 111, lngSpread * 111 * Math.cos(avgLat * Math.PI / 180)) / 2;

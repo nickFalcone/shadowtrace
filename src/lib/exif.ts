@@ -95,7 +95,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       const match = result.utcOffset.match(/^([+-])(\d{2}):(\d{2})$/);
       if (match) {
         const sign = match[1] === '+' ? 1 : -1;
-        const offsetMs = sign * (parseInt(match[2]) * 60 + parseInt(match[3])) * 60_000;
+        const offsetMs = sign * (parseInt(match[2]) * 60 + parseInt(match[3])) * 60000;
         const computed = new Date(result.localTime.getTime() - offsetMs);
         if (isValid(computed)) {
           result.utcTime = computed;
@@ -157,7 +157,7 @@ export function getUtcOffsetOptions(): { label: string; minutes: number }[] {
 
 /** Apply a UTC offset (minutes) to a local Date to get UTC Date */
 export function applyUtcOffset(localTime: Date, offsetMinutes: number): Date {
-  return new Date(localTime.getTime() - offsetMinutes * 60_000);
+  return new Date(localTime.getTime() - offsetMinutes * 60000);
 }
 
 /** Format a Date as "YYYY-MM-DD" for date input values */

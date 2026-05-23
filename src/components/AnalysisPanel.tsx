@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,7 @@ import { AzimuthConstraint } from '@/lib/shadowfinder';
 
 interface AnalysisPanelProps {
   points: ClickPoint[];
-  onAnalyze: (date: Date, time: string) => void;
+  onAnalyze: (date: Date) => void;
   isAnalyzing: boolean;
   measurements?: {
     objectHeight: number;
@@ -35,6 +35,19 @@ function browserOffsetMinutes(): number {
   const raw = -new Date().getTimezoneOffset(); // getTimezoneOffset returns inverted sign
   // Round to nearest 30-min step
   return Math.round(raw / 30) * 30;
+}
+
+function computeSunBearing(points: ClickPoint[], photoMetadata: PhotoMetadata | null | undefined): number | null {
+  const bearing = photoMetadata?.compassBearing;
+  if (bearing == null || photoMetadata?.compassRef === 'M' || points.length < 3) return null;
+  const objectBottom = points.find(p => p.type === 'object-bottom');
+  const shadowTip = points.find(p => p.type === 'shadow-tip');
+  if (!objectBottom || !shadowTip) return null;
+  const dx = shadowTip.x - objectBottom.x;
+  const dy = shadowTip.y - objectBottom.y;
+  const shadowImageAngle = Math.atan2(dx, -dy) * 180 / Math.PI;
+  const shadowBearing = ((bearing + shadowImageAngle) % 360 + 360) % 360;
+  return (shadowBearing + 180) % 360;
 }
 
 // Format GPS coordinates as decimal-degree string (e.g., "40.7128°N, 74.0060°W")
@@ -58,15 +71,9 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   const [manualOffsetMinutes, setManualOffsetMinutes] = useState<number>(browserOffsetMinutes);
   const [azimuthEnabled, setAzimuthEnabled] = useState(false);
 
-  // Reset when analysis mode changes
-  useEffect(() => {
-    setSelectedDate('');
-    setSelectedTime('12:00');
-    setManualOffsetMinutes(browserOffsetMinutes());
-    setAzimuthEnabled(false);
-  }, [analysisMode]);
-
-  // Pre-fill from EXIF metadata
+  // Pre-fill date/time inputs from EXIF metadata when a new photo is uploaded.
+  // MUST use useEffect — calling setters during render would cause infinite re-renders.
+  // Deps: [photoMetadata] — re-fill whenever a new photo's metadata arrives.
   useEffect(() => {
     if (!photoMetadata) return;
 
@@ -80,7 +87,9 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
     }
   }, [photoMetadata]);
 
-  // When user adjusts the offset picker, recompute UTC date/time from local time
+  // Recompute displayed UTC time when the user adjusts the offset picker.
+  // MUST use useEffect — calling setters during render would cause infinite re-renders.
+  // Deps: [manualOffsetMinutes, photoMetadata] — recalculate when either changes.
   useEffect(() => {
     if (!photoMetadata?.localTime || photoMetadata.utcTime) return;
     const utc = applyUtcOffset(photoMetadata.localTime, manualOffsetMinutes);
@@ -94,27 +103,20 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
     navigator.clipboard.writeText(`${lat},${lng}`).catch(() => {});
   };
 
-  const sunBearingDeg = useMemo(() => {
-    const bearing = photoMetadata?.compassBearing;
-    if (bearing == null || photoMetadata?.compassRef === 'M' || points.length < 3) return null;
+  // sunBearingDeg is a primitive (number | null) — computed directly during render, no useMemo needed.
+  const sunBearingDeg = computeSunBearing(points, photoMetadata);
 
-    const objectBottom = points.find(p => p.type === 'object-bottom');
-    const shadowTip = points.find(p => p.type === 'shadow-tip');
-    if (!objectBottom || !shadowTip) return null;
-
-    const dx = shadowTip.x - objectBottom.x;
-    const dy = shadowTip.y - objectBottom.y;
-    const shadowImageAngle = Math.atan2(dx, -dy) * 180 / Math.PI;
-    const shadowBearing = ((bearing + shadowImageAngle) % 360 + 360) % 360;
-    return (shadowBearing + 180) % 360;
-  }, [points, photoMetadata]);
-
-  // Auto-enable when sun bearing becomes computable
+  // Auto-enable the azimuth toggle when a sun bearing first becomes computable.
+  // MUST use useEffect — calling setAzimuthEnabled during render would cause infinite re-renders.
+  // Deps: [sunBearingDeg] — fire only when bearing availability changes.
   useEffect(() => {
     if (sunBearingDeg !== null) setAzimuthEnabled(true);
   }, [sunBearingDeg]);
 
-  // Emit constraint to parent whenever toggle or bearing changes
+  // Emit the current azimuth constraint to the parent whenever bearing or toggle changes.
+  // MUST use useEffect — calling onAzimuthConstraint during render re-renders the parent,
+  // which re-renders this component, causing an infinite loop.
+  // Deps: [sunBearingDeg, azimuthEnabled, onAzimuthConstraint] — recalculate on any change.
   useEffect(() => {
     if (sunBearingDeg !== null && azimuthEnabled) {
       onAzimuthConstraint({ sunBearingDeg, toleranceDeg: 10, enabled: true });
@@ -136,8 +138,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 
   const handleAnalyze = () => {
     if (selectedDate) {
-      const date = new Date(`${selectedDate}T${selectedTime}Z`);
-      onAnalyze(date, selectedTime);
+      onAnalyze(new Date(`${selectedDate}T${selectedTime}Z`));
     }
   };
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ImageUploader } from '@/components/ImageUploader';
 import { InteractiveImage, ClickPoint } from '@/components/InteractiveImage';
 import { AnalysisPanel } from '@/components/AnalysisPanel';
@@ -22,32 +22,20 @@ const Index = () => {
   const [analysisMode, setAnalysisMode] = useState<'first' | 'second'>('first');
   
   // First photo analysis
-  const [firstUploadedFile, setFirstUploadedFile] = useState<File | null>(null);
   const [firstImageUrl, setFirstImageUrl] = useState<string | null>(null);
   const [firstPhotoMeta, setFirstPhotoMeta] = useState<PhotoMetadata | null>(null);
   const [firstPoints, setFirstPoints] = useState<ClickPoint[]>([]);
-  const [firstAnalysisResult, setFirstAnalysisResult] = useState<{
-    latitude: number;
-    longitude: number;
-    accuracy: number;
-  } | null>(null);
   const [firstShadowAnalysisData, setFirstShadowAnalysisData] = useState<ShadowAnalysisResult | null>(null);
   const [firstAnalysisDate, setFirstAnalysisDate] = useState<Date | null>(null);
   const [firstAnalysisMeasurements, setFirstAnalysisMeasurements] = useState<{
     objectHeight: number;
     shadowLength: number;
   } | null>(null);
-  
+
   // Second photo analysis
-  const [secondUploadedFile, setSecondUploadedFile] = useState<File | null>(null);
   const [secondImageUrl, setSecondImageUrl] = useState<string | null>(null);
   const [secondPhotoMeta, setSecondPhotoMeta] = useState<PhotoMetadata | null>(null);
   const [secondPoints, setSecondPoints] = useState<ClickPoint[]>([]);
-  const [secondAnalysisResult, setSecondAnalysisResult] = useState<{
-    latitude: number;
-    longitude: number;
-    accuracy: number;
-  } | null>(null);
   const [secondShadowAnalysisData, setSecondShadowAnalysisData] = useState<ShadowAnalysisResult | null>(null);
   const [secondAnalysisDate, setSecondAnalysisDate] = useState<Date | null>(null);
   const [secondAnalysisMeasurements, setSecondAnalysisMeasurements] = useState<{
@@ -75,38 +63,35 @@ const Index = () => {
   // Check if we have both analyses for intersection
   const hasBothAnalyses = firstShadowAnalysisData && secondShadowAnalysisData;
 
-  // Auto-scroll to results when analysis completes
+  // Scroll the results panel into view using scrollIntoView (browser DOM API) and
+  // setTimeout (browser timer API) to wait one tick for the DOM to settle.
+  // Cleanup: cancel the pending timeout if the component re-renders before it fires.
+  // Deps: [firstShadowAnalysisData, secondShadowAnalysisData, analysisMode] — scroll when results arrive.
   useEffect(() => {
-    const currentAnalysisData = getCurrentShadowAnalysisData();
-    if (currentAnalysisData && resultsRef.current) {
-      setTimeout(() => {
-        resultsRef.current?.scrollIntoView({ 
-          behavior: 'smooth',
-          block: 'start'
-        });
-      }, 100); // Small delay to ensure rendering is complete
+    const currentData = analysisMode === 'first' ? firstShadowAnalysisData : secondShadowAnalysisData;
+    if (currentData && resultsRef.current) {
+      const id = setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+      return () => clearTimeout(id);
     }
-  }, [firstShadowAnalysisData, secondShadowAnalysisData]);
+  }, [firstShadowAnalysisData, secondShadowAnalysisData, analysisMode]);
 
   const handleImageUpload = async (file: File) => {
     const url = URL.createObjectURL(file);
     const meta = await extractPhotoMetadata(file);
 
     if (analysisMode === 'first') {
-      setFirstUploadedFile(file);
       setFirstImageUrl(url);
       setFirstPhotoMeta(meta);
       setFirstPoints([]);
-      setFirstAnalysisResult(null);
       setFirstShadowAnalysisData(null);
       setFirstAnalysisDate(null);
       setFirstAnalysisMeasurements(null);
     } else {
-      setSecondUploadedFile(file);
       setSecondImageUrl(url);
       setSecondPhotoMeta(meta);
       setSecondPoints([]);
-      setSecondAnalysisResult(null);
       setSecondShadowAnalysisData(null);
       setSecondAnalysisDate(null);
       setSecondAnalysisMeasurements(null);
@@ -157,7 +142,7 @@ const Index = () => {
     }
   };
 
-  const performShadowAnalysis = async (date: Date, time: string): Promise<{ latitude: number; longitude: number; accuracy: number }> => {
+  const performShadowAnalysis = async (date: Date): Promise<{ latitude: number; longitude: number; accuracy: number }> => {
     // Get current points based on analysis mode
     const currentPoints = getCurrentPoints();
     
@@ -226,18 +211,10 @@ const Index = () => {
     return bestLocation;
   };
 
-  const handleAnalyze = async (date: Date, time: string) => {
+  const handleAnalyze = async (date: Date) => {
     setIsAnalyzing(true);
-    
     try {
-      const result = await performShadowAnalysis(date, time);
-      
-      // Store result based on current mode
-      if (analysisMode === 'first') {
-        setFirstAnalysisResult(result);
-      } else {
-        setSecondAnalysisResult(result);
-      }
+      await performShadowAnalysis(date);
     } catch (error) {
       console.error('Shadow analysis error:', error);
     } finally {
@@ -254,24 +231,18 @@ const Index = () => {
   const handleStartOver = () => {
     setAnalysisMode('first');
     
-    // Clear first photo data
-    setFirstUploadedFile(null);
     setFirstImageUrl(null);
     setFirstPhotoMeta(null);
     setFirstAzimuthConstraint(null);
     setFirstPoints([]);
-    setFirstAnalysisResult(null);
     setFirstShadowAnalysisData(null);
     setFirstAnalysisDate(null);
     setFirstAnalysisMeasurements(null);
 
-    // Clear second photo data
-    setSecondUploadedFile(null);
     setSecondImageUrl(null);
     setSecondPhotoMeta(null);
     setSecondAzimuthConstraint(null);
     setSecondPoints([]);
-    setSecondAnalysisResult(null);
     setSecondShadowAnalysisData(null);
     setSecondAnalysisDate(null);
     setSecondAnalysisMeasurements(null);
@@ -477,21 +448,17 @@ const Index = () => {
                   onImageReplace={() => {
                     if (analysisMode === 'first') {
                       setFirstImageUrl(null);
-                      setFirstUploadedFile(null);
                       setFirstPhotoMeta(null);
                       setFirstAzimuthConstraint(null);
                       setFirstPoints([]);
-                      setFirstAnalysisResult(null);
                       setFirstShadowAnalysisData(null);
                       setFirstAnalysisDate(null);
                       setFirstAnalysisMeasurements(null);
                     } else {
                       setSecondImageUrl(null);
-                      setSecondUploadedFile(null);
                       setSecondPhotoMeta(null);
                       setSecondAzimuthConstraint(null);
                       setSecondPoints([]);
-                      setSecondAnalysisResult(null);
                       setSecondShadowAnalysisData(null);
                       setSecondAnalysisDate(null);
                       setSecondAnalysisMeasurements(null);
@@ -522,7 +489,7 @@ const Index = () => {
                         Add Second Photo
                       </Button>
                       <Button
-                        variant="cyber-outline"
+                        variant="cyber-ghost"
                         onClick={handleStartOver}
                         className="min-w-32"
                       >
@@ -563,6 +530,7 @@ const Index = () => {
             {/* Right column - Analysis panel */}
             <div className="space-y-6">
               <AnalysisPanel
+                key={analysisMode}
                 points={getCurrentPoints()}
                 onAnalyze={handleAnalyze}
                 isAnalyzing={isAnalyzing}
