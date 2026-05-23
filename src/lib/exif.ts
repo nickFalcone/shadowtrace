@@ -33,7 +33,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       exifr.gps(file).catch(() => null),
     ]);
 
-    if (!exif && !exifRaw) return null;
+    if (!exif && !exifRaw && !gps) return null;
 
     const result: PhotoMetadata = {
       localTime: null,
@@ -122,6 +122,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       utcTime: result.utcTime?.toISOString() ?? null,
       compassBearing: result.compassBearing,
       compassRef: result.compassRef,
+      gpsCoords: result.gpsCoords,
     });
 
     return result;
