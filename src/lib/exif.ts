@@ -8,6 +8,7 @@ export interface PhotoMetadata {
   compassBearing: number | null;
   compassRef: 'T' | 'M' | null;
   gpsCoords: { lat: number; lng: number } | null;
+  focalLength35mm: number | null;
 }
 
 export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | null> {
@@ -24,6 +25,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
           'GPSTimeStamp',
           'GPSImgDirection',
           'GPSImgDirectionRef',
+          'FocalLengthIn35mmFormat',
         ],
       }),
       exifr.parse(file, {
@@ -43,6 +45,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       compassBearing: null,
       compassRef: null,
       gpsCoords: null,
+      focalLength35mm: null,
     };
 
     const isValid = (d: unknown): d is Date =>
@@ -108,6 +111,12 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       result.compassRef = exif.GPSImgDirectionRef as 'T' | 'M';
     }
 
+    if (exif?.FocalLengthIn35mmFormat != null &&
+        isFinite(Number(exif.FocalLengthIn35mmFormat)) &&
+        Number(exif.FocalLengthIn35mmFormat) > 0) {
+      result.focalLength35mm = Number(exif.FocalLengthIn35mmFormat);
+    }
+
     if (gps?.latitude != null && gps?.longitude != null &&
         isFinite(gps.latitude) && isFinite(gps.longitude)) {
       result.gpsCoords = { lat: gps.latitude, lng: gps.longitude };
@@ -124,6 +133,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       compassBearing: result.compassBearing,
       compassRef: result.compassRef,
       gpsCoords: result.gpsCoords,
+      focalLength35mm: result.focalLength35mm,
     });
 
     return result;
@@ -158,4 +168,15 @@ export function formatDateInput(date: Date): string {
 /** Format a Date as "HH:MM" for time input values */
 export function formatTimeInput(date: Date): string {
   return date.toISOString().slice(11, 16);
+}
+
+/**
+ * Computes horizontal FOV in degrees from a 35mm-equivalent focal length.
+ * Falls back to 65° (≈28mm) when focal length is unavailable.
+ */
+export function computeFovDeg(focalLength35mm: number | null): number {
+  if (focalLength35mm != null && focalLength35mm > 0) {
+    return 2 * Math.atan(36 / (2 * focalLength35mm)) * (180 / Math.PI);
+  }
+  return 65;
 }
