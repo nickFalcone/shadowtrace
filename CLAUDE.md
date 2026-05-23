@@ -22,7 +22,7 @@ Single-page app. One route (`/`), one page component (`src/pages/Index.tsx`).
 **Data flow:**
 1. User uploads a photo → `extractPhotoMetadata` (`src/lib/exif.ts`) runs two concurrent `exifr.parse` calls plus `exifr.gps()` to extract timestamp, compass bearing, focal length, and GPS coords into `PhotoMetadata`.
 2. User marks 3 points on the image (object base, object top, shadow tip) via `InteractiveImage`.
-3. "Estimate Location" → `generateShadowFinderGrid` + `analyzeShadowMeasurements` (`src/lib/shadowfinder.ts`) sweep a 0.5° global grid using SunCalc, scoring each point by how well its theoretical shadow ratio matches the measured one.
+3. "Estimate Location" → `generateShadowFinderGrid` + `analyzeShadowMeasurements` (`src/lib/shadowfinder.ts`) sweep a 0.5° global grid using inlined sun-position math (verified against SunCalc in tests), scoring each point by the symmetric angular error `|atan(height/shadow) − sun_altitude|` in radians. Band thresholds (`ULTRA_TIGHT_BAND_RAD`, `MAIN_BAND_RAD`, `VISIBLE_BAND_RAD`, etc.) are exported from `shadowfinder.ts` and consumed by the visualization. `estimateBestLocation` splits bimodal posteriors at the largest latitude gap and uses a circular mean for longitudes so the antimeridian doesn't break the centroid.
 4. Results pass as props to `ShadowFinderVisualization`, which renders a Leaflet heatmap plus optional GPS marker and FOV cone.
 
 **Dual-photo mode:** `Index.tsx` maintains mirrored state for first/second photos (`firstPhotoMeta`/`secondPhotoMeta`, etc.). When both analyses exist, `ShadowFinderVisualization` intersects their high-probability grids and renders a single combined heatmap.
