@@ -13,7 +13,7 @@ import {
   formatDateInput,
   formatTimeInput,
 } from '@/lib/exif';
-import { AzimuthConstraint } from '@/lib/shadowfinder';
+import { AzimuthConstraint, DEFAULT_AZIMUTH_TOLERANCE_DEG } from '@/lib/shadowfinder';
 
 interface AnalysisPanelProps {
   points: ClickPoint[];
@@ -80,10 +80,9 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
     if (photoMetadata.utcTime) {
       setSelectedDate(formatDateInput(photoMetadata.utcTime));
       setSelectedTime(formatTimeInput(photoMetadata.utcTime));
-    } else if (photoMetadata.localTime) {
-      // Pre-fill local time — user must pick offset
-      setSelectedDate(formatDateInput(photoMetadata.localTime));
-      setSelectedTime(formatTimeInput(photoMetadata.localTime));
+    } else if (photoMetadata.localWallClock) {
+      setSelectedDate(formatDateInput(photoMetadata.localWallClock));
+      setSelectedTime(formatTimeInput(photoMetadata.localWallClock));
     }
   }, [photoMetadata]);
 
@@ -91,8 +90,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   // MUST use useEffect — calling setters during render would cause infinite re-renders.
   // Deps: [manualOffsetMinutes, photoMetadata] — recalculate when either changes.
   useEffect(() => {
-    if (!photoMetadata?.localTime || photoMetadata.utcTime) return;
-    const utc = applyUtcOffset(photoMetadata.localTime, manualOffsetMinutes);
+    if (!photoMetadata?.localWallClock || photoMetadata.utcTime) return;
+    const utc = applyUtcOffset(photoMetadata.localWallClock, manualOffsetMinutes);
     setSelectedDate(formatDateInput(utc));
     setSelectedTime(formatTimeInput(utc));
   }, [manualOffsetMinutes, photoMetadata]);
@@ -119,7 +118,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   // Deps: [sunBearingDeg, azimuthEnabled, onAzimuthConstraint] — recalculate on any change.
   useEffect(() => {
     if (sunBearingDeg !== null && azimuthEnabled) {
-      onAzimuthConstraint({ sunBearingDeg, toleranceDeg: 10, enabled: true });
+      onAzimuthConstraint({ sunBearingDeg, toleranceDeg: DEFAULT_AZIMUTH_TOLERANCE_DEG, enabled: true });
     } else {
       onAzimuthConstraint(null);
     }
@@ -149,7 +148,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
     !photoMetadata ? 'none'
     : photoMetadata.hasGPSTime ? 'gps'
     : photoMetadata.utcOffset ? 'offset'
-    : photoMetadata.localTime ? 'local'
+    : photoMetadata.localWallClock ? 'local'
     : 'none';
 
   return (

@@ -5,12 +5,19 @@ import 'leaflet.heat';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Zap } from 'lucide-react';
-import { ShadowFinderPoint, ShadowAnalysisResult, AzimuthConstraint, applyAzimuthConstraint } from '@/lib/shadowfinder';
+import {
+  ShadowFinderPoint,
+  ShadowAnalysisResult,
+  AzimuthConstraint,
+  applyAzimuthConstraint,
+  VISIBLE_BAND_RAD,
+  NIGHT_LIKELIHOOD,
+} from '@/lib/shadowfinder';
 import { computeFovDeg } from '@/lib/exif';
 
 type HeatPoint = [number, number, number];
 
-const LIKELIHOOD_CUTOFF = 0.15;
+const LIKELIHOOD_CUTOFF = VISIBLE_BAND_RAD;
 
 const WARM_GRADIENT: Record<string, string> = { 0.4: '#FF4500', 0.65: '#FF9500', 0.85: '#FFD700', 1.0: '#FFFF33' };
 const COOL_GRADIENT: Record<string, string> = { 0.4: '#1E90FF', 0.7: '#00E5FF', 1.0: '#FFFFFF' };
@@ -45,7 +52,7 @@ function filterPoints(
   points: ShadowFinderPoint[],
   constraint: AzimuthConstraint | null | undefined
 ): { visible: ShadowFinderPoint[]; fallback: boolean } {
-  const base = points.filter(p => p.likelihood !== -1 && p.likelihood <= LIKELIHOOD_CUTOFF);
+  const base = points.filter(p => p.likelihood !== NIGHT_LIKELIHOOD && p.likelihood <= LIKELIHOOD_CUTOFF);
   if (!constraint?.enabled) return { visible: base, fallback: false };
   const filtered = applyAzimuthConstraint(base, constraint);
   if (filtered.length === 0) return { visible: base, fallback: true };
@@ -246,7 +253,7 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
       const firstPoint = firstMap.get(key);
       if (firstPoint) {
         const combinedLikelihood = Math.max(firstPoint.likelihood, p.likelihood);
-        intersectionPoints.push([p.lat, p.lng, 1 - combinedLikelihood / 0.15]);
+        intersectionPoints.push([p.lat, p.lng, 1 - combinedLikelihood / LIKELIHOOD_CUTOFF]);
       }
     }
 
