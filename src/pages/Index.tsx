@@ -546,6 +546,8 @@ const Index = () => {
                     mode={hasBothAnalyses ? 'intersection' : 'single'}
                     azimuthConstraint={firstAzimuthConstraint}
                     secondAzimuthConstraint={hasBothAnalyses ? secondAzimuthConstraint : null}
+                    gpsCoords={firstPhotoMeta?.gpsCoords ?? null}
+                    secondGpsCoords={hasBothAnalyses ? (secondPhotoMeta?.gpsCoords ?? null) : null}
                   />
                 </div>
               )}
