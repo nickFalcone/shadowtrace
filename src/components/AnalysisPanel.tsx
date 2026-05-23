@@ -37,7 +37,7 @@ function browserOffsetMinutes(): number {
   return Math.round(raw / 30) * 30;
 }
 
-// Format GPS coordinates as DMS-style string (e.g., "40.7128°N, 74.0060°W")
+// Format GPS coordinates as decimal-degree string (e.g., "40.7128°N, 74.0060°W")
 function formatCoords(lat: number, lng: number): string {
   const latStr = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}`;
   const lngStr = `${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
@@ -91,7 +91,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   const handleCopyCoords = () => {
     if (!photoMetadata?.gpsCoords) return;
     const { lat, lng } = photoMetadata.gpsCoords;
-    navigator.clipboard.writeText(`${lat},${lng}`);
+    navigator.clipboard.writeText(`${lat},${lng}`).catch(() => {});
   };
 
   const sunBearingDeg = useMemo(() => {
