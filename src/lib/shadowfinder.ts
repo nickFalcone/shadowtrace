@@ -69,7 +69,7 @@ export function generateShadowFinderGrid(
         // Relative difference between calculated and measured shadow ratio.
         // Equivalent to abs((objectHeight/tan(alt) - shadowLength) / shadowLength)
         // but avoids the per-iteration division by shadowLength.
-        likelihood = Math.abs(1 / (Math.tan(sunAltitudeRad) * measuredRatio) - 1);
+        likelihood = Math.abs(measuredRatio / Math.tan(sunAltitudeRad) - 1);
       }
 
       // SunCalc azimuth: 0=South, positive=West, negative=East (radians)
