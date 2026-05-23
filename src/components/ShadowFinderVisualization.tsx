@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Zap } from 'lucide-react';
 import { ShadowFinderPoint, ShadowAnalysisResult, AzimuthConstraint, applyAzimuthConstraint } from '@/lib/shadowfinder';
+import { computeFovDeg } from '@/lib/exif';
 
 type HeatPoint = [number, number, number];
 
@@ -32,6 +33,12 @@ interface ShadowFinderVisualizationProps {
   secondAzimuthConstraint?: AzimuthConstraint | null;
   gpsCoords?: { lat: number; lng: number } | null;
   secondGpsCoords?: { lat: number; lng: number } | null;
+  compassBearing?: number | null;
+  compassRef?: 'T' | 'M' | null;
+  focalLength35mm?: number | null;
+  secondCompassBearing?: number | null;
+  secondCompassRef?: 'T' | 'M' | null;
+  secondFocalLength35mm?: number | null;
 }
 
 function filterPoints(
@@ -124,6 +131,66 @@ function GpsMarkerLayer({ coords, label }: GpsMarkerLayerProps) {
   return null;
 }
 
+function destinationPoint(
+  lat: number,
+  lng: number,
+  bearingDeg: number,
+  distanceKm: number
+): [number, number] {
+  const R = 6371;
+  const d = distanceKm / R;
+  const φ1 = (lat * Math.PI) / 180;
+  const λ1 = (lng * Math.PI) / 180;
+  const θ = (bearingDeg * Math.PI) / 180;
+  const φ2 = Math.asin(
+    Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(θ)
+  );
+  const λ2 =
+    λ1 +
+    Math.atan2(
+      Math.sin(θ) * Math.sin(d) * Math.cos(φ1),
+      Math.cos(d) - Math.sin(φ1) * Math.sin(φ2)
+    );
+  return [(φ2 * 180) / Math.PI, (λ2 * 180) / Math.PI];
+}
+
+interface GpsConeLayerProps {
+  coords: { lat: number; lng: number };
+  bearingDeg: number;
+  fovDeg: number;
+}
+
+function GpsConeLayer({ coords, bearingDeg, fovDeg }: GpsConeLayerProps) {
+  const map = useMap();
+
+  useEffect(() => {
+    const RADIUS_KM = 600;
+    const STEPS = 30;
+    const halfFov = fovDeg / 2;
+    const arcPoints: [number, number][] = [];
+
+    for (let i = 0; i <= STEPS; i++) {
+      const bearing = bearingDeg - halfFov + (fovDeg * i) / STEPS;
+      arcPoints.push(destinationPoint(coords.lat, coords.lng, bearing, RADIUS_KM));
+    }
+
+    const polygon = L.polygon(
+      [[coords.lat, coords.lng], ...arcPoints],
+      {
+        color: '#00e5ff',
+        fillColor: '#00e5ff',
+        fillOpacity: 0.12,
+        opacity: 0.5,
+        weight: 1,
+      }
+    ).addTo(map);
+
+    return () => { map.removeLayer(polygon); };
+  }, [coords.lat, coords.lng, bearingDeg, fovDeg, map]);
+
+  return null;
+}
+
 export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps> = ({
   analysisData,
   knownTime,
@@ -136,6 +203,12 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
   secondAzimuthConstraint,
   gpsCoords,
   secondGpsCoords,
+  compassBearing,
+  compassRef,
+  focalLength35mm,
+  secondCompassBearing,
+  secondCompassRef,
+  secondFocalLength35mm,
 }) => {
   const { visible: firstVisible, fallback: firstFallback } = useMemo(
     () => filterPoints(analysisData.points, azimuthConstraint),
@@ -263,6 +336,22 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
 
           {secondGpsCoords && (
             <GpsMarkerLayer coords={secondGpsCoords} label="Photo 2 GPS" />
+          )}
+
+          {gpsCoords && compassBearing != null && compassRef !== 'M' && (
+            <GpsConeLayer
+              coords={gpsCoords}
+              bearingDeg={compassBearing}
+              fovDeg={computeFovDeg(focalLength35mm ?? null)}
+            />
+          )}
+
+          {secondGpsCoords && secondCompassBearing != null && secondCompassRef !== 'M' && (
+            <GpsConeLayer
+              coords={secondGpsCoords}
+              bearingDeg={secondCompassBearing}
+              fovDeg={computeFovDeg(secondFocalLength35mm ?? null)}
+            />
           )}
         </MapContainer>
       </div>
