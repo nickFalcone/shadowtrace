@@ -37,6 +37,13 @@ function browserOffsetMinutes(): number {
   return Math.round(raw / 30) * 30;
 }
 
+// Format GPS coordinates as DMS-style string (e.g., "40.7128°N, 74.0060°W")
+function formatCoords(lat: number, lng: number): string {
+  const latStr = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}`;
+  const lngStr = `${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
+  return `${latStr}, ${lngStr}`;
+}
+
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   points,
   onAnalyze,
@@ -80,6 +87,12 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
     setSelectedDate(formatDateInput(utc));
     setSelectedTime(formatTimeInput(utc));
   }, [manualOffsetMinutes, photoMetadata]);
+
+  const handleCopyCoords = () => {
+    if (!photoMetadata?.gpsCoords) return;
+    const { lat, lng } = photoMetadata.gpsCoords;
+    navigator.clipboard.writeText(`${lat},${lng}`);
+  };
 
   const sunBearingDeg = useMemo(() => {
     const bearing = photoMetadata?.compassBearing;
@@ -265,6 +278,25 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {/* GPS coordinates */}
+          {photoMetadata?.gpsCoords && (
+            <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-green-500/10 border border-green-500/20">
+              <div className="flex items-center gap-2 min-w-0">
+                <MapPin className="w-3.5 h-3.5 text-green-400 shrink-0" />
+                <span className="text-xs text-green-400 truncate">
+                  {formatCoords(photoMetadata.gpsCoords.lat, photoMetadata.gpsCoords.lng)}
+                </span>
+              </div>
+              <button
+                onClick={handleCopyCoords}
+                className="text-xs text-green-400/70 hover:text-green-400 transition-colors shrink-0 px-1.5 py-0.5 rounded hover:bg-green-500/10"
+                title="Copy decimal coordinates"
+              >
+                Copy
+              </button>
             </div>
           )}
 
