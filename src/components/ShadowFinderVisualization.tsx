@@ -105,9 +105,18 @@ function GpsMarkerLayer({ coords, label }: GpsMarkerLayerProps) {
       iconAnchor: [6, 6],
     });
 
+    const popupEl = document.createElement('div');
+    const labelEl = document.createElement('b');
+    labelEl.textContent = label;
+    popupEl.appendChild(labelEl);
+    popupEl.appendChild(document.createElement('br'));
+    popupEl.appendChild(document.createTextNode(
+      `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`
+    ));
+
     const marker = L.marker([coords.lat, coords.lng], { icon })
       .addTo(map)
-      .bindPopup(`<b>${label}</b><br>${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`);
+      .bindPopup(popupEl);
 
     return () => { map.removeLayer(marker); };
   }, [coords.lat, coords.lng, map, label]);
