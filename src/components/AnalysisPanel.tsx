@@ -89,7 +89,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   }, [manualOffsetMinutes, photoMetadata]);
 
   const handleCopyCoords = () => {
-    if (!photoMetadata?.gpsCoords) return;
+    if (!photoMetadata?.gpsCoords || !navigator.clipboard) return;
     const { lat, lng } = photoMetadata.gpsCoords;
     navigator.clipboard.writeText(`${lat},${lng}`).catch(() => {});
   };

@@ -145,12 +145,13 @@ function destinationPoint(
   const φ2 = Math.asin(
     Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(θ)
   );
-  const λ2 =
+  const λ2Raw =
     λ1 +
     Math.atan2(
       Math.sin(θ) * Math.sin(d) * Math.cos(φ1),
       Math.cos(d) - Math.sin(φ1) * Math.sin(φ2)
     );
+  const λ2 = ((λ2Raw + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
   return [(φ2 * 180) / Math.PI, (λ2 * 180) / Math.PI];
 }
 
