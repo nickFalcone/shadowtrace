@@ -164,7 +164,7 @@ function GpsConeLayer({ coords, bearingDeg, fovDeg }: GpsConeLayerProps) {
   const map = useMap();
 
   useEffect(() => {
-    const RADIUS_KM = 600;
+    const RADIUS_KM = 200;
     const STEPS = 30;
     const halfFov = fovDeg / 2;
     const arcPoints: [number, number][] = [];
