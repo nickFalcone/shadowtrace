@@ -546,6 +546,14 @@ const Index = () => {
                     mode={hasBothAnalyses ? 'intersection' : 'single'}
                     azimuthConstraint={firstAzimuthConstraint}
                     secondAzimuthConstraint={hasBothAnalyses ? secondAzimuthConstraint : null}
+                    gpsCoords={firstPhotoMeta?.gpsCoords ?? null}
+                    secondGpsCoords={hasBothAnalyses ? (secondPhotoMeta?.gpsCoords ?? null) : null}
+                    compassBearing={firstPhotoMeta?.compassBearing ?? null}
+                    compassRef={firstPhotoMeta?.compassRef ?? null}
+                    focalLength35mm={firstPhotoMeta?.focalLength35mm ?? null}
+                    secondCompassBearing={hasBothAnalyses ? (secondPhotoMeta?.compassBearing ?? null) : null}
+                    secondCompassRef={hasBothAnalyses ? (secondPhotoMeta?.compassRef ?? null) : null}
+                    secondFocalLength35mm={hasBothAnalyses ? (secondPhotoMeta?.focalLength35mm ?? null) : null}
                   />
                 </div>
               )}

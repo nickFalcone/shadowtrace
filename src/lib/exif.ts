@@ -7,6 +7,8 @@ export interface PhotoMetadata {
   hasGPSTime: boolean;
   compassBearing: number | null;
   compassRef: 'T' | 'M' | null;
+  gpsCoords: { lat: number; lng: number } | null;
+  focalLength35mm: number | null;
 }
 
 export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | null> {
@@ -15,7 +17,7 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
     // DateTimeOriginal string. exifr's parsed Date bakes in the browser's local TZ, making
     // getHours() return browser-local hours rather than EXIF local hours. Parsing the raw
     // "YYYY:MM:DD HH:MM:SS" string ourselves avoids all browser-timezone ambiguity.
-    const [exif, exifRaw] = await Promise.all([
+    const [exif, exifRaw, gps] = await Promise.all([
       exifr.parse(file, {
         pick: [
           'OffsetTimeOriginal',
@@ -23,15 +25,17 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
           'GPSTimeStamp',
           'GPSImgDirection',
           'GPSImgDirectionRef',
+          'FocalLengthIn35mmFormat',
         ],
       }),
       exifr.parse(file, {
         pick: ['DateTimeOriginal'],
         reviveValues: false,
       }),
+      exifr.gps(file).catch(() => null),
     ]);
 
-    if (!exif && !exifRaw) return null;
+    if (!exif && !exifRaw && !gps) return null;
 
     const result: PhotoMetadata = {
       localTime: null,
@@ -40,6 +44,8 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       hasGPSTime: false,
       compassBearing: null,
       compassRef: null,
+      gpsCoords: null,
+      focalLength35mm: null,
     };
 
     const isValid = (d: unknown): d is Date =>
@@ -105,7 +111,18 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       result.compassRef = exif.GPSImgDirectionRef as 'T' | 'M';
     }
 
-    if (!result.localTime && !result.utcTime) return null;
+    if (exif?.FocalLengthIn35mmFormat != null &&
+        isFinite(Number(exif.FocalLengthIn35mmFormat)) &&
+        Number(exif.FocalLengthIn35mmFormat) > 0) {
+      result.focalLength35mm = Number(exif.FocalLengthIn35mmFormat);
+    }
+
+    if (gps?.latitude != null && gps?.longitude != null &&
+        isFinite(gps.latitude) && isFinite(gps.longitude)) {
+      result.gpsCoords = { lat: gps.latitude, lng: gps.longitude };
+    }
+
+    if (!result.localTime && !result.utcTime && !result.gpsCoords) return null;
 
     const source = result.hasGPSTime ? 'gps' : result.utcOffset ? 'offset' : 'local-only';
     console.log('[exif]', {
@@ -115,6 +132,8 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       utcTime: result.utcTime?.toISOString() ?? null,
       compassBearing: result.compassBearing,
       compassRef: result.compassRef,
+      gpsCoords: result.gpsCoords,
+      focalLength35mm: result.focalLength35mm,
     });
 
     return result;
@@ -149,4 +168,16 @@ export function formatDateInput(date: Date): string {
 /** Format a Date as "HH:MM" for time input values */
 export function formatTimeInput(date: Date): string {
   return date.toISOString().slice(11, 16);
+}
+
+/**
+ * Computes horizontal FOV in degrees from a 35mm-equivalent focal length.
+ * Falls back to 65° (≈28mm) when focal length is unavailable.
+ * Assumes landscape orientation (36mm wide); portrait shots will appear ~19° wider than actual.
+ */
+export function computeFovDeg(focalLength35mm: number | null): number {
+  if (focalLength35mm != null && focalLength35mm > 0) {
+    return 2 * Math.atan(36 / (2 * focalLength35mm)) * (180 / Math.PI);
+  }
+  return 65;
 }
