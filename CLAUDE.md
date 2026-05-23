@@ -8,10 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev        # dev server at http://localhost:8080/shadowtrace/
 npm run build      # production build
 npm run lint       # ESLint
-npx tsc --noEmit   # type-check (no test suite)
+npm run test       # vitest (run once)
+npm run test:watch # vitest (watch mode)
+npx tsc --noEmit   # type-check
 ```
 
-No test framework is configured. Type-check after every change.
+Type-check and run tests after every change. Test files are colocated (`*.test.ts` next to the source file).
 
 ## Architecture
 
