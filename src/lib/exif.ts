@@ -108,7 +108,8 @@ export async function extractPhotoMetadata(file: File): Promise<PhotoMetadata | 
       result.compassRef = exif.GPSImgDirectionRef as 'T' | 'M';
     }
 
-    if (gps?.latitude != null && gps?.longitude != null) {
+    if (gps?.latitude != null && gps?.longitude != null &&
+        isFinite(gps.latitude) && isFinite(gps.longitude)) {
       result.gpsCoords = { lat: gps.latitude, lng: gps.longitude };
     }
 
