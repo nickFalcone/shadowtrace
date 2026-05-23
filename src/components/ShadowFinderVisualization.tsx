@@ -338,6 +338,7 @@ export const ShadowFinderVisualization: React.FC<ShadowFinderVisualizationProps>
             <GpsMarkerLayer coords={secondGpsCoords} label="Photo 2 GPS" />
           )}
 
+          {/* null compassRef treated as True per EXIF spec §4.6.6; magnetic-only cameras that omit the tag are an acceptable false-positive risk */}
           {gpsCoords && compassBearing != null && compassRef !== 'M' && (
             <GpsConeLayer
               coords={gpsCoords}

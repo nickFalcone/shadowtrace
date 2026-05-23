@@ -173,6 +173,7 @@ export function formatTimeInput(date: Date): string {
 /**
  * Computes horizontal FOV in degrees from a 35mm-equivalent focal length.
  * Falls back to 65° (≈28mm) when focal length is unavailable.
+ * Assumes landscape orientation (36mm wide); portrait shots will appear ~19° wider than actual.
  */
 export function computeFovDeg(focalLength35mm: number | null): number {
   if (focalLength35mm != null && focalLength35mm > 0) {
