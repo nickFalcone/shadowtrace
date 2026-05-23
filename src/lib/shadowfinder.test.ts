@@ -6,6 +6,7 @@ import {
   analyzeShadowMeasurements,
   estimateBestLocation,
   generateShadowFinderGrid,
+  computeLikelihood,
   type ShadowFinderPoint,
   type ShadowAnalysisResult,
 } from './shadowfinder';
@@ -30,6 +31,37 @@ function makeResult(points: ShadowFinderPoint[]): ShadowAnalysisResult {
     },
   };
 }
+
+// ─── computeLikelihood ───────────────────────────────────────────────────────
+//
+// These tests pin the exact formula. An accidental inversion (1/(ratio*tan) instead
+// of ratio/tan) changes all non-zero results and would fail the asymmetric cases.
+
+describe('computeLikelihood', () => {
+  const ALT_45 = Math.PI / 4; // tan(45°) = 1 — simplifies expected values
+
+  it('returns 0 when the shadow ratio exactly matches the sun altitude', () => {
+    // objectHeight/shadowLength = 1 = tan(45°), perfect match
+    expect(computeLikelihood(100, 100, ALT_45)).toBeCloseTo(0);
+  });
+
+  it('returns 1 when the object is twice the shadow length at 45°', () => {
+    // ratio = 2, tan(45°) = 1 → |2/1 - 1| = 1.0
+    expect(computeLikelihood(200, 100, ALT_45)).toBeCloseTo(1.0);
+  });
+
+  it('returns 0.5 when the shadow is twice the object length at 45°', () => {
+    // ratio = 0.5, tan(45°) = 1 → |0.5/1 - 1| = 0.5
+    // An inverted formula gives |1/(1*0.5) - 1| = 1.0 — catches the bug
+    expect(computeLikelihood(100, 200, ALT_45)).toBeCloseTo(0.5);
+  });
+
+  it('is asymmetric: swapping object and shadow lengths gives different results', () => {
+    const a = computeLikelihood(200, 100, ALT_45); // ratio 2 → 1.0
+    const b = computeLikelihood(100, 200, ALT_45); // ratio 0.5 → 0.5
+    expect(a).not.toBeCloseTo(b);
+  });
+});
 
 // ─── calculateMeasurementsFromPixels ────────────────────────────────────────
 

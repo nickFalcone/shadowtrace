@@ -40,6 +40,24 @@ export interface ShadowAnalysisResult {
 }
 
 /**
+ * Compute the ShadowFinder likelihood score for a single grid point.
+ * Returns the absolute relative difference between the shadow ratio implied
+ * by the sun's altitude and the measured shadow ratio.
+ *
+ *   likelihood = |measuredRatio / tan(sunAltitudeRad) - 1|
+ *
+ * A value of 0 means the sun altitude perfectly explains the measured shadow.
+ * Only valid when sunAltitudeRad > 0 (daytime points).
+ */
+export function computeLikelihood(
+  objectHeight: number,
+  shadowLength: number,
+  sunAltitudeRad: number
+): number {
+  return Math.abs((objectHeight / shadowLength) / Math.tan(sunAltitudeRad) - 1);
+}
+
+/**
  * Generate ShadowFinder grid using the exact algorithm approach
  * This matches the 290x720 grid structure from the reference implementation
  */
@@ -50,9 +68,6 @@ export function generateShadowFinderGrid(
 ): ShadowFinderPoint[] {
   const points: ShadowFinderPoint[] = [];
   const angularResolution = 0.5; // degrees - same as ShadowFinder
-
-  // Hoisted: constant for all 208,800 iterations — avoids 208,800 repeated divisions.
-  const measuredRatio = objectHeight / shadowLength;
 
   // Sample points across the world (EXACT same range as ShadowFinder)
   for (let lat = -60.0; lat <= 84.5; lat += angularResolution) {
@@ -66,10 +81,7 @@ export function generateShadowFinderGrid(
       if (sunAltitudeRad <= 0) {
         likelihood = -1; // Night area - will be filtered out in visualization
       } else {
-        // Relative difference between calculated and measured shadow ratio.
-        // Equivalent to abs((objectHeight/tan(alt) - shadowLength) / shadowLength)
-        // but avoids the per-iteration division by shadowLength.
-        likelihood = Math.abs(measuredRatio / Math.tan(sunAltitudeRad) - 1);
+        likelihood = computeLikelihood(objectHeight, shadowLength, sunAltitudeRad);
       }
 
       // SunCalc azimuth: 0=South, positive=West, negative=East (radians)
